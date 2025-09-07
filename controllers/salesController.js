@@ -15,6 +15,7 @@ const createSale = async (req, res) => {
       containerNo,
       supplier,
       invoiceDate,
+      invoiceNumber, // Add this to destructuring
       product,
       marka,
       description,
@@ -36,17 +37,24 @@ const createSale = async (req, res) => {
       }
     }
 
-    // Auto-generate invoice number
-    const nextSequence = await Counter.getNextSequence('invoiceNumber');
-    const invoiceNumber = `INV-${String(nextSequence).padStart(6, '0')}`;
-
-    // Check if invoice number already exists (shouldn't happen with auto-generation, but safety check)
-    const existingSale = await Sales.findOne({ invoiceNumber });
-    if (existingSale) {
-      return res.status(400).json({
-        error: 'Invoice number already exists',
-        message: 'A sale with this invoice number already exists'
-      });
+    // Handle invoice number - use provided one or auto-generate
+    let finalInvoiceNumber;
+    if (invoiceNumber && invoiceNumber.trim() !== '') {
+      // Use provided invoice number
+      finalInvoiceNumber = invoiceNumber.trim();
+      
+      // Check if the provided invoice number already exists
+      const existingSale = await Sales.findOne({ invoiceNumber: finalInvoiceNumber });
+      if (existingSale) {
+        return res.status(400).json({
+          error: 'Invoice number already exists',
+          message: 'A sale with this invoice number already exists. Please use a different invoice number.'
+        });
+      }
+    } else {
+      // Auto-generate invoice number
+      const nextSequence = await Counter.getNextSequence('invoiceNumber');
+      finalInvoiceNumber = `INV-${String(nextSequence).padStart(6, '0')}`;
     }
 
     // Create new sale
@@ -55,7 +63,7 @@ const createSale = async (req, res) => {
       containerNo,
       supplier,
       invoiceDate: new Date(invoiceDate),
-      invoiceNumber,
+      invoiceNumber: finalInvoiceNumber,
       product,
       marka,
       description,
@@ -458,6 +466,7 @@ const updateSale = async (req, res) => {
       containerNo,
       supplier,
       invoiceDate,
+      invoiceNumber, // Add this to destructuring
       product,
       marka,
       description,
@@ -488,11 +497,27 @@ const updateSale = async (req, res) => {
       });
     }
 
+    // Check if invoice number is being changed and if it's unique
+    if (invoiceNumber && invoiceNumber.trim() !== '' && invoiceNumber !== sale.invoiceNumber) {
+      const existingSale = await Sales.findOne({ 
+        invoiceNumber: invoiceNumber.trim(),
+        _id: { $ne: req.params.id } // Exclude current sale from check
+      });
+      
+      if (existingSale) {
+        return res.status(400).json({
+          error: 'Invoice number already exists',
+          message: 'A sale with this invoice number already exists. Please use a different invoice number.'
+        });
+      }
+    }
+
     // Update sale
     sale.customer = customer;
     sale.containerNo = containerNo;
     sale.supplier = supplier;
     sale.invoiceDate = new Date(invoiceDate);
+    sale.invoiceNumber = invoiceNumber && invoiceNumber.trim() !== '' ? invoiceNumber.trim() : sale.invoiceNumber;
     sale.product = product;
     sale.marka = marka;
     sale.description = description;
