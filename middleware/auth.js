@@ -77,6 +77,7 @@ const authorize = (...roles) => {
   };
 };
 
+
 // Middleware to check if user is admin
 const requireAdmin = authorize('admin');
 
