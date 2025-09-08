@@ -1,6 +1,6 @@
 const express = require('express');
 const { body } = require('express-validator');
-const { protect, requireEmployee } = require('../middleware/auth');
+const { protect, requireEmployee, requireAdmin } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/validation');
 const {
   createSale,
@@ -122,6 +122,10 @@ router.post('/:id/payments', [
 // @route   DELETE /api/sales/:id
 // @desc    Delete sale
 // @access  Private (Admin only)
-router.delete('/:id', [protect, requireEmployee], deleteSale);
+router.delete('/:id', [
+  protect, 
+  requireAdmin,
+  body('password', 'Admin password is required for deletion').exists()
+], validateRequest, deleteSale);
 
 module.exports = router; 

@@ -684,11 +684,47 @@ const getPaymentHistory = async (req, res) => {
 // @access  Private (Admin only)
 const deleteSale = async (req, res) => {
   try {
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: 'Only administrators can delete sales'
+      });
+    }
+
     // Check if ID is valid ObjectId
     if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({
         error: 'Invalid sale ID',
         message: 'Sale ID must be a valid 24-character hexadecimal string'
+      });
+    }
+
+    const { password } = req.body;
+
+    if (!password) {
+      return res.status(400).json({
+        error: 'Password required',
+        message: 'Admin password verification is required to delete sales'
+      });
+    }
+
+    // Verify admin password
+    const User = require('../models/User');
+    const user = await User.findById(req.user.id).select('+password');
+    
+    if (!user) {
+      return res.status(404).json({
+        error: 'User not found',
+        message: 'User does not exist'
+      });
+    }
+
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      return res.status(401).json({
+        error: 'Invalid password',
+        message: 'Admin password is incorrect'
       });
     }
 

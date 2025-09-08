@@ -172,6 +172,61 @@ const changePassword = async (req, res) => {
   }
 };
 
+// @desc    Verify admin password for sensitive operations
+// @route   POST /api/auth/verify-admin-password
+// @access  Private (Admin only)
+const verifyAdminPassword = async (req, res) => {
+  try {
+    const { password } = req.body;
+
+    if (!password) {
+      return res.status(400).json({ 
+        error: 'Password required',
+        message: 'Please provide your password'
+      });
+    }
+
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ 
+        error: 'Access denied',
+        message: 'Only administrators can perform this action'
+      });
+    }
+
+    // Get user with password
+    const user = await User.findById(req.user.id).select('+password');
+    
+    if (!user) {
+      return res.status(404).json({ 
+        error: 'User not found',
+        message: 'User does not exist'
+      });
+    }
+
+    // Check password
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      return res.status(401).json({ 
+        error: 'Invalid password',
+        message: 'Password is incorrect'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Password verified successfully'
+    });
+
+  } catch (error) {
+    console.error('Verify admin password error:', error);
+    res.status(500).json({ 
+      error: 'Server error',
+      message: 'Internal server error'
+    });
+  }
+};
+
 // @desc    Update user profile
 // @route   PUT /api/auth/profile
 // @access  Private
@@ -241,5 +296,6 @@ module.exports = {
   getCurrentUser,
   logout,
   changePassword,
+  verifyAdminPassword,
   updateProfile
 }; 

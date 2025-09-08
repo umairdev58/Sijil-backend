@@ -7,6 +7,7 @@ const {
   getCurrentUser,
   logout,
   changePassword,
+  verifyAdminPassword,
   updateProfile
 } = require('../controllers/authController');
 
@@ -38,6 +39,14 @@ router.post('/change-password', [
   body('currentPassword', 'Current password is required').exists(),
   body('newPassword', 'New password must be at least 6 characters').isLength({ min: 6 })
 ], validateRequest, changePassword);
+
+// @route   POST /api/auth/verify-admin-password
+// @desc    Verify admin password for sensitive operations
+// @access  Private (Admin only)
+router.post('/verify-admin-password', [
+  protect,
+  body('password', 'Password is required').exists()
+], validateRequest, verifyAdminPassword);
 
 // @route   PUT /api/auth/profile
 // @desc    Update user profile

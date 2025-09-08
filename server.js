@@ -16,6 +16,7 @@ const freightRoutes = require('./routes/freight');
 const transportRoutes = require('./routes/transport');
 const dubaiTransportRoutes = require('./routes/dubaiTransport');
 const dubaiClearanceRoutes = require('./routes/dubaiClearance');
+const containerStatementRoutes = require('./routes/containerStatements');
 const { initializeAdmin } = require('./utils/adminInitializer');
 
 const app = express();
@@ -96,6 +97,7 @@ app.use('/api/freight-invoices', freightRoutes);
 app.use('/api/transport-invoices', transportRoutes);
 app.use('/api/dubai-transport-invoices', dubaiTransportRoutes);
 app.use('/api/dubai-clearance-invoices', dubaiClearanceRoutes);
+app.use('/api/container-statements', containerStatementRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -122,7 +124,7 @@ app.use('*', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-const HOST = "0.0.0.0"; 
+const HOST = process.env.HOST ||"0.0.0.0"; 
 
 app.listen(PORT, HOST, () => {
   console.log(`🚀 Server running on ${HOST}:${PORT}`);
