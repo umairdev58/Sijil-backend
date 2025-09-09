@@ -587,10 +587,18 @@ const addPayment = async (req, res) => {
       });
     }
 
+    // Check if sale is already fully paid
+    if (sale.outstandingAmount <= 0) {
+      return res.status(400).json({
+        error: 'Sale already paid',
+        message: 'This invoice is already fully paid. No additional payments can be added.'
+      });
+    }
+
     if (amount > sale.outstandingAmount) {
       return res.status(400).json({
-        error: 'Invalid amount',
-        message: 'Payment amount cannot be greater than outstanding amount'
+        error: 'Overpayment not allowed',
+        message: `Payment amount (AED ${amount.toLocaleString('en-AE', { minimumFractionDigits: 2 })}) cannot exceed the outstanding amount (AED ${sale.outstandingAmount.toLocaleString('en-AE', { minimumFractionDigits: 2 })}). Please enter an amount less than or equal to AED ${sale.outstandingAmount.toLocaleString('en-AE', { minimumFractionDigits: 2 })}.`
       });
     }
 
@@ -672,6 +680,140 @@ const getPaymentHistory = async (req, res) => {
 
   } catch (error) {
     console.error('Get payment history error:', error);
+    res.status(500).json({
+      error: 'Server error',
+      message: 'Internal server error'
+    });
+  }
+};
+
+// @desc    Delete a payment transaction
+// @route   DELETE /api/sales/:saleId/payments/:paymentId
+// @access  Private (Admin only)
+const deletePayment = async (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: 'Only administrators can delete payments'
+      });
+    }
+
+    // Check if IDs are valid ObjectIds
+    if (!req.params.saleId.match(/^[0-9a-fA-F]{24}$/) || !req.params.paymentId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({
+        error: 'Invalid ID',
+        message: 'Sale ID and Payment ID must be valid 24-character hexadecimal strings'
+      });
+    }
+
+    const { password } = req.body;
+
+    if (!password) {
+      return res.status(400).json({
+        error: 'Password required',
+        message: 'Admin password verification is required to delete payments'
+      });
+    }
+
+    // Verify admin password
+    const User = require('../models/User');
+    const user = await User.findById(req.user.id).select('+password');
+    
+    if (!user) {
+      return res.status(404).json({
+        error: 'User not found',
+        message: 'User does not exist'
+      });
+    }
+
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      return res.status(401).json({
+        error: 'Invalid password',
+        message: 'Admin password is incorrect'
+      });
+    }
+
+    // Find the sale and payment
+    const sale = await Sales.findById(req.params.saleId);
+    if (!sale) {
+      return res.status(404).json({
+        error: 'Sale not found',
+        message: 'Sale does not exist'
+      });
+    }
+
+    const payment = await Payment.findById(req.params.paymentId);
+    if (!payment) {
+      return res.status(404).json({
+        error: 'Payment not found',
+        message: 'Payment does not exist'
+      });
+    }
+
+    // Verify payment belongs to this sale
+    if (payment.saleId.toString() !== req.params.saleId) {
+      return res.status(400).json({
+        error: 'Invalid payment',
+        message: 'Payment does not belong to this sale'
+      });
+    }
+
+    // Delete the payment
+    await Payment.findByIdAndDelete(req.params.paymentId);
+
+    // Recalculate sale amounts
+    const remainingPayments = await Payment.find({ saleId: req.params.saleId });
+    const totalReceived = remainingPayments.reduce((sum, p) => sum + p.amount, 0);
+    
+    sale.receivedAmount = totalReceived;
+    sale.outstandingAmount = sale.amount - totalReceived;
+    
+    // Update status based on outstanding amount and due date
+    if (sale.outstandingAmount <= 0) {
+      sale.status = 'paid';
+    } else if (sale.receivedAmount > 0) {
+      sale.status = 'partially_paid';
+    } else if (new Date() > sale.dueDate) {
+      sale.status = 'overdue';
+    } else {
+      sale.status = 'unpaid';
+    }
+
+    // Update last payment date
+    if (remainingPayments.length > 0) {
+      sale.lastPaymentDate = remainingPayments.sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime())[0].paymentDate;
+    } else {
+      sale.lastPaymentDate = null;
+    }
+
+    await sale.save();
+
+    // Get updated payment history
+    const updatedPayments = await Payment.find({ saleId: req.params.saleId })
+      .populate('receivedBy', 'name email')
+      .sort({ paymentDate: -1 });
+
+    const paymentSummary = await sale.getPaymentSummary();
+
+    res.json({
+      success: true,
+      message: 'Payment deleted successfully',
+      payments: updatedPayments,
+      paymentSummary,
+      sale: {
+        _id: sale._id,
+        receivedAmount: sale.receivedAmount,
+        outstandingAmount: sale.outstandingAmount,
+        status: sale.status,
+        lastPaymentDate: sale.lastPaymentDate
+      }
+    });
+
+  } catch (error) {
+    console.error('Delete payment error:', error);
     res.status(500).json({
       error: 'Server error',
       message: 'Internal server error'
@@ -1157,7 +1299,7 @@ const printInvoice = async (req, res) => {
 // @access  Private (Admin/Employee)
 const getCustomerOutstanding = async (req, res) => {
   try {
-    const { search = '', minAmount = '', maxAmount = '', status = '' } = req.query;
+    const { search = '', minAmount = '', maxAmount = '', status = '', groupBy = 'customer', product = '' } = req.query;
 
     // Build aggregation pipeline
     const pipeline = [
@@ -1167,8 +1309,75 @@ const getCustomerOutstanding = async (req, res) => {
           outstandingAmount: { $gt: 0 }
         }
       },
-      // Group by customer
-      {
+    ];
+
+    // Add product filter if specified
+    if (product) {
+      pipeline.push({
+        $match: {
+          product: { $regex: product, $options: 'i' }
+        }
+      });
+    }
+
+    // Determine grouping strategy
+    if (groupBy === 'product') {
+      // Group by product first, then by customer within each product
+      pipeline.push(
+        {
+          $group: {
+            _id: {
+              product: '$product',
+              customer: '$customer'
+            },
+            productName: { $first: '$product' },
+            customerName: { $first: '$customer' },
+            totalOutstanding: { $sum: '$outstandingAmount' },
+            totalAmount: { $sum: '$amount' },
+            totalReceived: { $sum: '$receivedAmount' },
+            invoiceCount: { $sum: 1 },
+            unpaidInvoices: {
+              $sum: { $cond: [{ $eq: ['$status', 'unpaid'] }, 1, 0] }
+            },
+            partiallyPaidInvoices: {
+              $sum: { $cond: [{ $eq: ['$status', 'partially_paid'] }, 1, 0] }
+            },
+            overdueInvoices: {
+              $sum: { $cond: [{ $eq: ['$status', 'overdue'] }, 1, 0] }
+            },
+            lastPaymentDate: { $max: '$lastPaymentDate' },
+            oldestDueDate: { $min: '$dueDate' }
+          }
+        },
+        {
+          $group: {
+            _id: '$productName',
+            productName: { $first: '$productName' },
+            customers: {
+              $push: {
+                customerName: '$customerName',
+                totalOutstanding: '$totalOutstanding',
+                totalAmount: '$totalAmount',
+                totalReceived: '$totalReceived',
+                invoiceCount: '$invoiceCount',
+                unpaidInvoices: '$unpaidInvoices',
+                partiallyPaidInvoices: '$partiallyPaidInvoices',
+                overdueInvoices: '$overdueInvoices',
+                lastPaymentDate: '$lastPaymentDate',
+                oldestDueDate: '$oldestDueDate'
+              }
+            },
+            totalOutstanding: { $sum: '$totalOutstanding' },
+            totalAmount: { $sum: '$totalAmount' },
+            totalReceived: { $sum: '$totalReceived' },
+            totalInvoices: { $sum: '$invoiceCount' },
+            totalCustomers: { $sum: 1 }
+          }
+        }
+      );
+    } else {
+      // Default: Group by customer
+      pipeline.push({
         $group: {
           _id: '$customer',
           customerName: { $first: '$customer' },
@@ -1188,9 +1397,42 @@ const getCustomerOutstanding = async (req, res) => {
           lastPaymentDate: { $max: '$lastPaymentDate' },
           oldestDueDate: { $min: '$dueDate' }
         }
-      },
-      // Add computed fields
-      {
+      });
+    }
+    // Add computed fields based on grouping type
+    if (groupBy === 'product') {
+      pipeline.push({
+        $addFields: {
+          customers: {
+            $map: {
+              input: '$customers',
+              as: 'customer',
+              in: {
+                $mergeObjects: [
+                  '$$customer',
+                  {
+                    status: {
+                      $cond: [
+                        { $gt: ['$$customer.overdueInvoices', 0] },
+                        'overdue',
+                        {
+                          $cond: [
+                            { $gt: ['$$customer.partiallyPaidInvoices', 0] },
+                            'partially_paid',
+                            'unpaid'
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      });
+    } else {
+      pipeline.push({
         $addFields: {
           status: {
             $cond: [
@@ -1206,20 +1448,32 @@ const getCustomerOutstanding = async (req, res) => {
             ]
           }
         }
-      },
-      // Sort by outstanding amount (highest first)
-      {
-        $sort: { totalOutstanding: -1 }
-      }
-    ];
+      });
+    }
+
+    // Sort by outstanding amount (highest first)
+    pipeline.push({
+      $sort: { totalOutstanding: -1 }
+    });
 
     // Add search filter
     if (search) {
-      pipeline.unshift({
-        $match: {
-          customer: { $regex: search, $options: 'i' }
-        }
-      });
+      if (groupBy === 'product') {
+        pipeline.unshift({
+          $match: {
+            $or: [
+              { customer: { $regex: search, $options: 'i' } },
+              { product: { $regex: search, $options: 'i' } }
+            ]
+          }
+        });
+      } else {
+        pipeline.unshift({
+          $match: {
+            customer: { $regex: search, $options: 'i' }
+          }
+        });
+      }
     }
 
     // Add amount range filters
@@ -1415,6 +1669,69 @@ const generateCustomerOutstandingPDF = async (req, res) => {
   }
 };
 
+// @desc    Get unique products for filtering
+// @route   GET /api/sales/products
+// @access  Private (Admin/Employee)
+const getUniqueProducts = async (req, res) => {
+  try {
+    const products = await Sales.distinct('product', { 
+      outstandingAmount: { $gt: 0 },
+      product: { $exists: true, $ne: null, $ne: '' }
+    });
+    
+    res.json({
+      success: true,
+      data: products.sort()
+    });
+  } catch (error) {
+    console.error('Get unique products error:', error);
+    res.status(500).json({
+      error: 'Server error',
+      message: 'Failed to fetch unique products'
+    });
+  }
+};
+
+// Get autocomplete suggestions for sales form fields
+const getAutocompleteSuggestions = async (req, res) => {
+  try {
+    const { field } = req.params;
+    
+    // Define which fields are allowed for autocomplete
+    const allowedFields = ['product', 'containerNo', 'marka', 'description'];
+    
+    if (!allowedFields.includes(field)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid field for autocomplete'
+      });
+    }
+
+    // Get unique values for the specified field
+    const suggestions = await Sales.distinct(field, {
+      [field]: { $exists: true, $ne: null, $ne: '' }
+    });
+
+    // Sort suggestions alphabetically and limit to 20 most recent/used
+    const sortedSuggestions = suggestions
+      .filter(suggestion => suggestion && suggestion.trim() !== '')
+      .sort()
+      .slice(0, 20);
+
+    res.json({
+      success: true,
+      suggestions: sortedSuggestions
+    });
+  } catch (error) {
+    console.error('Error fetching autocomplete suggestions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching autocomplete suggestions',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   createSale,
   getSales,
@@ -1422,11 +1739,14 @@ module.exports = {
   updateSale,
   addPayment,
   getPaymentHistory,
+  deletePayment,
   deleteSale,
   getSalesStatistics,
   generateSalesReport,
   getMonthlyStatistics,
   printInvoice,
   getCustomerOutstanding,
-  generateCustomerOutstandingPDF
+  generateCustomerOutstandingPDF,
+  getUniqueProducts,
+  getAutocompleteSuggestions
 }; 

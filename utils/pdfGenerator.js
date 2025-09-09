@@ -962,23 +962,23 @@ class PDFGenerator {
     this.currentY = 180;
     this.doc.y = this.currentY;
     
-    const columnWidths = [180, 90, 80, 90, 75];
-    const headers = ['Customer Name', 'Outstanding', 'Invoices', 'Status', 'Last Payment'];
+    const columnWidths = [250, 120, 120];
+    const headers = ['Customer Name', 'Outstanding', 'Status'];
     
     // Draw table header
-    this.doc.fontSize(10).font('Helvetica-Bold');
+    this.doc.fontSize(12).font('Helvetica-Bold');
     this.doc.fillColor('#2d3748');
     this.doc.strokeColor('#e2e8f0');
     this.doc.lineWidth(1);
     
     let x = this.margin;
     headers.forEach((header, index) => {
-      this.doc.rect(x, this.currentY, columnWidths[index], 25).stroke();
-      this.doc.text(header, x + 5, this.currentY + 8, { width: columnWidths[index] - 10 });
+      this.doc.rect(x, this.currentY, columnWidths[index], 30).stroke();
+      this.doc.text(header, x + 5, this.currentY + 10, { width: columnWidths[index] - 10 });
       x += columnWidths[index];
     });
     
-    this.currentY += 25;
+    this.currentY += 30;
     
     // Draw table rows
     customerOutstanding.forEach((customer, index) => {
@@ -993,45 +993,33 @@ class PDFGenerator {
       
       // Alternate row colors
       this.doc.fillColor(index % 2 === 0 ? '#f7fafc' : 'white');
-      this.doc.rect(this.margin, y, columnWidths.reduce((a, b) => a + b, 0), 20).fill();
+      this.doc.rect(this.margin, y, columnWidths.reduce((a, b) => a + b, 0), 25).fill();
       this.doc.fillColor('black');
       
       let x = this.margin;
-      this.doc.fontSize(9).font('Helvetica');
+      this.doc.fontSize(11).font('Helvetica');
       
       // Customer Name
       this.doc.font('Helvetica-Bold');
-      this.doc.text(customer.customerName, x + 5, y + 5, { width: columnWidths[0] - 10, ellipsis: true });
+      this.doc.text(customer.customerName, x + 5, y + 8, { width: columnWidths[0] - 10, ellipsis: true });
       x += columnWidths[0];
       
       // Outstanding Amount
       this.doc.font('Helvetica-Bold');
       this.doc.fillColor('#e53e3e');
-      this.doc.text(`AED ${customer.totalOutstanding.toLocaleString()}`, x + 5, y + 5, { width: columnWidths[1] - 10, align: 'right' });
+      this.doc.text(`AED ${customer.totalOutstanding.toLocaleString()}`, x + 5, y + 8, { width: columnWidths[1] - 10, align: 'right' });
       this.doc.fillColor('black');
       x += columnWidths[1];
-      
-      // Invoice Count
-      this.doc.font('Helvetica');
-      this.doc.text(customer.invoiceCount.toString(), x + 5, y + 5, { width: columnWidths[2] - 10, align: 'center' });
-      x += columnWidths[2];
       
       // Status
       this.doc.font('Helvetica-Bold');
       const statusColor = customer.status === 'overdue' ? '#e53e3e' : 
                          customer.status === 'partially_paid' ? '#d69e2e' : '#3182ce';
       this.doc.fillColor(statusColor);
-      this.doc.text(customer.status.replace('_', ' ').toUpperCase(), x + 5, y + 5, { width: columnWidths[3] - 10, align: 'center' });
+      this.doc.text(customer.status.replace('_', ' ').toUpperCase(), x + 5, y + 8, { width: columnWidths[2] - 10, align: 'center' });
       this.doc.fillColor('black');
-      x += columnWidths[3];
       
-      // Last Payment Date
-      this.doc.font('Helvetica');
-      const lastPaymentDate = customer.lastPaymentDate ? 
-        new Date(customer.lastPaymentDate).toLocaleDateString('en-GB') : 'Never';
-      this.doc.text(lastPaymentDate, x + 5, y + 5, { width: columnWidths[4] - 10, align: 'center' });
-      
-      this.currentY += 20;
+      this.currentY += 25;
     });
     
     // Footer

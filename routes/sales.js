@@ -9,13 +9,16 @@ const {
   updateSale,
   addPayment,
   getPaymentHistory,
+  deletePayment,
   deleteSale,
   getSalesStatistics,
   generateSalesReport,
   getMonthlyStatistics,
   printInvoice,
   getCustomerOutstanding,
-  generateCustomerOutstandingPDF
+  generateCustomerOutstandingPDF,
+  getUniqueProducts,
+  getAutocompleteSuggestions
 } = require('../controllers/salesController');
 
 const router = express.Router();
@@ -70,6 +73,16 @@ router.get('/customer-outstanding', [protect, requireEmployee], getCustomerOutst
 // @access  Private (Admin/Employee)
 router.get('/customer-outstanding/pdf', [protect, requireEmployee], generateCustomerOutstandingPDF);
 
+// @route   GET /api/sales/products
+// @desc    Get unique products for filtering
+// @access  Private (Admin/Employee)
+router.get('/products', [protect, requireEmployee], getUniqueProducts);
+
+// @route   GET /api/sales/autocomplete/:field
+// @desc    Get autocomplete suggestions for sales form fields
+// @access  Private (Admin/Employee)
+router.get('/autocomplete/:field', [protect, requireEmployee], getAutocompleteSuggestions);
+
 // @route   GET /api/sales/:id
 // @desc    Get sale by ID with payment history
 // @access  Private (Admin/Employee)
@@ -84,6 +97,15 @@ router.get('/:id/print', [protect, requireEmployee], printInvoice);
 // @desc    Get payment history for a sale
 // @access  Private (Admin/Employee)
 router.get('/:id/payments', [protect, requireEmployee], getPaymentHistory);
+
+// @route   DELETE /api/sales/:saleId/payments/:paymentId
+// @desc    Delete a payment transaction
+// @access  Private (Admin only)
+router.delete('/:saleId/payments/:paymentId', [
+  protect, 
+  requireAdmin,
+  body('password', 'Admin password is required for deletion').exists()
+], validateRequest, deletePayment);
 
 // @route   PUT /api/sales/:id
 // @desc    Update sale
