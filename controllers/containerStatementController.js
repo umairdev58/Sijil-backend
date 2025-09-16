@@ -1,5 +1,6 @@
 const ContainerStatement = require('../models/ContainerStatement');
 const Sales = require('../models/Sales');
+const PDFGenerator = require('../utils/pdfGenerator');
 
 // @desc    Get container statement by container number
 // @route   GET /api/container-statements/:containerNo
@@ -332,5 +333,47 @@ module.exports = {
   addExpense,
   removeExpense,
   getAllContainerStatements,
-  deleteContainerStatement
+  deleteContainerStatement,
+  downloadStatementPDF: async (req, res) => {
+    try {
+      const { containerNo } = req.params;
+      if (!containerNo) {
+        return res.status(400).json({ success: false, message: 'Container number is required' });
+      }
+
+      // Reuse existing fetch/generate logic
+      let statement = await ContainerStatement.getByContainerNo(containerNo);
+      if (!statement) {
+        const salesData = await Sales.find({ containerNo }).sort({ createdAt: 1 });
+        if (salesData.length === 0) {
+          return res.status(404).json({ success: false, message: `No data found for ${containerNo}` });
+        }
+        const products = salesData.map((sale, index) => ({
+          srNo: index + 1,
+          product: sale.product,
+          quantity: sale.quantity,
+          unitPrice: sale.rate,
+          amountWithoutVAT: sale.amount - sale.vatAmount,
+        }));
+        const grossSale = products.reduce((s,p)=> s + p.amountWithoutVAT, 0);
+        const totalQuantity = products.reduce((s,p)=> s + p.quantity, 0);
+        statement = new ContainerStatement({
+          containerNo,
+          products,
+          expenses: [],
+          grossSale,
+          totalExpenses: 0,
+          netSale: grossSale,
+          totalQuantity,
+          createdBy: req.user.id
+        });
+      }
+
+      const pdf = new PDFGenerator();
+      pdf.generateContainerStatement(res, statement);
+    } catch (error) {
+      console.error('Download statement PDF error:', error);
+      res.status(500).json({ success: false, message: 'Failed to generate PDF' });
+    }
+  }
 };

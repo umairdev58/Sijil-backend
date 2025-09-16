@@ -23,9 +23,11 @@ class PDFGenerator {
       layout
     });
 
-    // Set response headers
+    // Set response headers (include CORS for blobs/downloads)
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
     
     // Pipe the PDF to response
     this.doc.pipe(res);
@@ -1028,6 +1030,201 @@ class PDFGenerator {
     this.doc.text(`Report generated on ${new Date().toLocaleString('en-GB')}`, this.margin, this.pageHeight - 50, { align: 'center' });
     
     this.doc.end();
+  }
+
+  // Generate Container Statement PDF
+  generateContainerStatement(res, statement) {
+    const filename = `container-statement-${statement.containerNo}-${new Date().toISOString().split('T')[0]}.pdf`;
+    const doc = this.initDocument(res, filename);
+
+    // Header
+    this.doc.fontSize(20).font('Helvetica-Bold');
+    this.doc.fillColor('#1f2937');
+    this.doc.text('CONTAINER STATEMENT', this.margin, 50, { align: 'center' });
+    this.doc.moveDown(0.5);
+    this.doc.fontSize(11).font('Helvetica');
+    this.doc.fillColor('#4b5563');
+    this.doc.text(`Container: ${statement.containerNo}`, this.margin, 80, { align: 'center' });
+    this.doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, this.margin, 96, { align: 'center' });
+
+    this.currentY = 120;
+    this.doc.y = this.currentY;
+
+    // Group products by product + unitPrice
+    const map = new Map();
+    (statement.products || []).forEach(p => {
+      const key = `${p.product}__${Number(p.unitPrice).toFixed(2)}`;
+      const ex = map.get(key);
+      if (ex) {
+        ex.quantity += p.quantity || 0;
+        ex.amountWithoutVAT += p.amountWithoutVAT || 0;
+      } else {
+        map.set(key, {
+          product: p.product,
+          unitPrice: Number(p.unitPrice) || 0,
+          quantity: Number(p.quantity) || 0,
+          amountWithoutVAT: Number(p.amountWithoutVAT) || 0,
+        });
+      }
+    });
+    const rows = Array.from(map.values()).sort((a,b)=>a.unitPrice-b.unitPrice);
+
+    // Summary strip (minimal, professional): three bordered tiles with headings and values
+    const tileWidth = (this.contentWidth - 20) / 3;
+    const tileHeight = 52;
+    const startX = this.margin;
+    const startY = this.currentY;
+    const gross = rows.reduce((s,r)=>s + r.amountWithoutVAT, 0);
+    const expensesTotal = (statement.expenses || []).reduce((s,e)=> s + (e.amount || 0), 0);
+    const net = gross - expensesTotal;
+
+    const tiles = [
+      { label: 'Gross Sale', value: `AED ${gross.toLocaleString()}` },
+      { label: 'Expenses', value: `AED ${expensesTotal.toLocaleString()}` },
+      { label: 'Net Sale', value: `AED ${net.toLocaleString()}` },
+    ];
+
+    this.doc.strokeColor('#e5e7eb');
+    this.doc.fillColor('white');
+    tiles.forEach((t, i) => {
+      const x = startX + i * (tileWidth + 10);
+      // tile border
+      this.doc.rect(x, startY, tileWidth, tileHeight).stroke();
+      // header
+      this.doc.fontSize(9).font('Helvetica').fillColor('#6b7280');
+      this.doc.text(t.label.toUpperCase(), x + 8, startY + 8, { width: tileWidth - 16 });
+      // value
+      this.doc.fontSize(14).font('Helvetica-Bold').fillColor('#111827');
+      this.doc.text(t.value, x + 8, startY + 24, { width: tileWidth - 16, align: 'right' });
+    });
+    this.doc.fillColor('black');
+    this.currentY = startY + tileHeight + 24;
+    this.doc.y = this.currentY;
+
+    // Products table
+    this.doc.fontSize(14).font('Helvetica-Bold').fillColor('#1f2937');
+    this.doc.text('Product Details', this.margin, this.currentY);
+    this.currentY += 20;
+
+    const headers = ['SR #', 'PRODUCT', 'QTY', 'UNIT PRICE', 'AMOUNT (AED)'];
+    const columnWidths = [45, 200, 70, 90, 120];
+    this.drawTableHeader(headers, columnWidths, this.currentY);
+    this.currentY += 35;
+
+    rows.forEach((r, idx) => {
+      if (this.currentY + 25 > this.pageHeight - 100) {
+        this.addNewPage();
+        this.drawTableHeader(headers, columnWidths, this.currentY);
+        this.currentY += 35;
+      }
+      const y = this.currentY;
+      // Row background
+      this.doc.fillColor(idx % 2 === 0 ? '#f7fafc' : 'white');
+      this.doc.rect(this.margin, y, columnWidths.reduce((a,b)=>a+b,0), 25).fill();
+      this.doc.fillColor('#111827').fontSize(10).font('Helvetica');
+      let x = this.margin;
+      this.doc.text(String(idx+1), x + 5, y + 8, { width: columnWidths[0]-10, align: 'left' }); x += columnWidths[0];
+      this.doc.font('Helvetica-Bold').text(r.product, x + 5, y + 8, { width: columnWidths[1]-10 }); x += columnWidths[1];
+      this.doc.font('Helvetica').text(r.quantity.toLocaleString(), x + 5, y + 8, { width: columnWidths[2]-10, align: 'right' }); x += columnWidths[2];
+      this.doc.text(r.unitPrice.toFixed(2), x + 5, y + 8, { width: columnWidths[3]-10, align: 'right' }); x += columnWidths[3];
+      this.doc.font('Helvetica-Bold').text(r.amountWithoutVAT.toLocaleString(), x + 5, y + 8, { width: columnWidths[4]-10, align: 'right' });
+      this.currentY += 25;
+    });
+
+    // Total row
+    const totalWidth = columnWidths.reduce((a,b)=>a+b,0);
+    this.doc.fillColor('#e5e7eb');
+    this.doc.rect(this.margin, this.currentY, totalWidth, 25).fill();
+    this.doc.fillColor('#111827').font('Helvetica-Bold');
+    this.doc.text('Total', this.margin + 5, this.currentY + 8, { width: columnWidths[0] + columnWidths[1] - 10 });
+    const totalQty = rows.reduce((s,r)=>s+r.quantity, 0);
+    let tx = this.margin + columnWidths[0] + columnWidths[1];
+    this.doc.text(totalQty.toLocaleString(), tx + 5, this.currentY + 8, { width: columnWidths[2]-10, align: 'right' }); tx += columnWidths[2];
+    this.doc.text('', tx + 5, this.currentY + 8, { width: columnWidths[3]-10 }); tx += columnWidths[3];
+    this.doc.text(gross.toLocaleString(), tx + 5, this.currentY + 8, { width: columnWidths[4]-10, align: 'right' });
+    this.currentY += 35;
+
+    // Expenses table (if any)
+    if ((statement.expenses || []).length > 0) {
+      this.doc.fontSize(14).font('Helvetica-Bold').fillColor('#1f2937');
+      this.doc.text('Expenses', this.margin, this.currentY);
+      this.currentY += 20;
+      const eHeaders = ['DESCRIPTION', 'AMOUNT (AED)'];
+      const eWidths = [350, 175];
+      this.drawTableHeader(eHeaders, eWidths, this.currentY);
+      this.currentY += 35;
+      (statement.expenses || []).forEach((e, i)=>{
+        if (this.currentY + 25 > this.pageHeight - 100) {
+          this.addNewPage();
+          this.drawTableHeader(eHeaders, eWidths, this.currentY);
+          this.currentY += 35;
+        }
+        const y = this.currentY;
+        this.doc.fillColor(i % 2 === 0 ? '#f7fafc' : 'white');
+        this.doc.rect(this.margin, y, eWidths.reduce((a,b)=>a+b,0), 25).fill();
+        this.doc.fillColor('#111827').fontSize(10).font('Helvetica');
+        this.doc.text(this.sanitizeField(e.description), this.margin + 5, y + 8, { width: eWidths[0] - 10 });
+        this.doc.font('Helvetica-Bold').text((e.amount || 0).toLocaleString(), this.margin + eWidths[0] + 5, y + 8, { width: eWidths[1] - 10, align: 'right' });
+        this.currentY += 25;
+      });
+
+      // Expenses subtotal
+      const eTotalWidth = eWidths.reduce((a,b)=>a+b,0);
+      this.doc.fillColor('#e5e7eb');
+      this.doc.rect(this.margin, this.currentY, eTotalWidth, 25).fill();
+      this.doc.fillColor('#111827').font('Helvetica-Bold');
+      this.doc.text('Sub Total', this.margin + 5, this.currentY + 8, { width: eWidths[0] - 10 });
+      this.doc.text(expensesTotal.toLocaleString(), this.margin + eWidths[0] + 5, this.currentY + 8, { width: eWidths[1] - 10, align: 'right' });
+      this.currentY += 35;
+    }
+
+    // Final calculation table: Total Sale - Expenses = Net Sale
+    this.doc.fontSize(14).font('Helvetica-Bold').fillColor('#1f2937');
+    this.doc.text('Final Calculation', this.margin, this.currentY);
+    this.currentY += 18;
+
+    const fColWidths = [300, 225];
+    const tableTotalWidth = fColWidths[0] + fColWidths[1];
+    const rowHeight = 24;
+
+    // Header
+    this.doc.fillColor('#f3f4f6');
+    this.doc.rect(this.margin, this.currentY, tableTotalWidth, rowHeight).fill();
+    this.doc.fillColor('#374151').fontSize(10).font('Helvetica-Bold');
+    this.doc.text('DESCRIPTION', this.margin + 8, this.currentY + 7, { width: fColWidths[0] - 16 });
+    this.doc.text('AMOUNT (AED)', this.margin + fColWidths[0] + 8, this.currentY + 7, { width: fColWidths[1] - 16, align: 'right' });
+    this.currentY += rowHeight;
+
+    // Rows
+    const finalRows = [
+      { label: 'Total Sale', value: gross },
+      { label: 'Less: Expenses', value: -expensesTotal },
+      { label: 'Net Sale', value: net, bold: true }
+    ];
+
+    finalRows.forEach((r, idx) => {
+      const isNet = !!r.bold;
+      const bg = isNet ? '#111827' : (idx % 2 === 0 ? '#ffffff' : '#f9fafb');
+      const fg = isNet ? '#ffffff' : '#111827';
+
+      // background
+      this.doc.fillColor(bg);
+      this.doc.rect(this.margin, this.currentY, tableTotalWidth, rowHeight).fill();
+
+      // text
+      this.doc.fillColor(fg).fontSize(10).font(r.bold ? 'Helvetica-Bold' : 'Helvetica');
+      this.doc.text(r.label, this.margin + 8, this.currentY + 7, { width: fColWidths[0] - 16 });
+      const valText = `${r.value < 0 ? '-' : ''}AED ${Math.abs(r.value).toLocaleString()}`;
+      this.doc.text(valText, this.margin + fColWidths[0] + 8, this.currentY + 7, { width: fColWidths[1] - 16, align: 'right' });
+
+      this.currentY += rowHeight;
+    });
+
+    this.currentY += 15;
+
+    // Footer
+    this.addFooter();
+    doc.end();
   }
 
   // Generate freight report PDF

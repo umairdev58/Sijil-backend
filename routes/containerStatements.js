@@ -7,12 +7,20 @@ const {
   addExpense,
   removeExpense,
   getAllContainerStatements,
-  deleteContainerStatement
+  deleteContainerStatement,
+  downloadStatementPDF
 } = require('../controllers/containerStatementController');
 const { protect, authorize } = require('../middleware/auth');
 
 // All routes are protected
 router.use(protect);
+
+// IMPORTANT: Define specific routes before parameterized ones to avoid conflicts
+
+// @route   GET /api/container-statements/:containerNo/pdf
+// @desc    Download container statement as PDF
+// @access  Private
+router.get('/:containerNo/pdf', downloadStatementPDF);
 
 // @route   GET /api/container-statements/:containerNo
 // @desc    Get container statement by container number

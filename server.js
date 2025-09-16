@@ -23,7 +23,27 @@ const app = express();
 
 // Security middleware
 app.use(helmet());
-app.use(cors());
+
+// CORS: reflect origin and expose Content-Disposition so downloads don't error in dev tools
+const corsOptions = {
+  origin: true,
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+  allowedHeaders: ['Authorization','Content-Type'],
+  exposedHeaders: ['Content-Disposition'],
+  credentials: false,
+  optionsSuccessStatus: 204
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
+// Also set headers for streamed responses
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  res.header('Access-Control-Expose-Headers', 'Content-Disposition');
+  next();
+});
 
 // Rate limiting
 const limiter = rateLimit({
