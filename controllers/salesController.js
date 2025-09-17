@@ -22,7 +22,6 @@ const createSale = async (req, res) => {
       quantity,
       rate,
       vatPercentage = 0,
-      discount = 0,
       dueDate
     } = req.body;
 
@@ -70,7 +69,6 @@ const createSale = async (req, res) => {
       quantity,
       rate,
       vatPercentage,
-      discount,
       dueDate: new Date(dueDate),
       status: 'unpaid',
       createdBy: req.user.id
@@ -568,7 +566,8 @@ const addPayment = async (req, res) => {
       paymentMethod = 'cash',
       reference,
       notes,
-      paymentDate
+      paymentDate,
+      discount = 0
     } = req.body;
 
     const sale = await Sales.findById(req.params.id);
@@ -610,7 +609,8 @@ const addPayment = async (req, res) => {
       paymentMethod,
       reference,
       notes,
-      paymentDate: paymentDate ? new Date(paymentDate) : new Date()
+      paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+      discount
     });
 
     // Create a new payment entry in the daily ledger
@@ -1732,6 +1732,37 @@ const getAutocompleteSuggestions = async (req, res) => {
   }
 };
 
+// @desc    Get recent payments
+// @route   GET /api/payments/recent
+// @access  Private
+const getRecentPayments = async (req, res) => {
+  try {
+    const { limit = 10, days = 7 } = req.query;
+    
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - parseInt(days));
+    
+    const payments = await Payment.find({
+      paymentDate: { $gte: startDate }
+    })
+    .populate('saleId', 'invoiceNumber customer amount')
+    .populate('receivedBy', 'name email')
+    .sort({ paymentDate: -1 })
+    .limit(parseInt(limit));
+
+    res.json({
+      success: true,
+      data: payments
+    });
+  } catch (error) {
+    console.error('Error fetching recent payments:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+};
+
 module.exports = {
   createSale,
   getSales,
@@ -1748,5 +1779,6 @@ module.exports = {
   getCustomerOutstanding,
   generateCustomerOutstandingPDF,
   getUniqueProducts,
-  getAutocompleteSuggestions
+  getAutocompleteSuggestions,
+  getRecentPayments
 }; 

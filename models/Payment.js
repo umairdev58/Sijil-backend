@@ -40,6 +40,11 @@ const paymentSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
     required: true
+  },
+  discount: {
+    type: Number,
+    default: 0,
+    min: [0, 'Discount cannot be negative']
   }
 }, {
   timestamps: true

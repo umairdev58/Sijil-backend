@@ -18,7 +18,8 @@ const {
   getCustomerOutstanding,
   generateCustomerOutstandingPDF,
   getUniqueProducts,
-  getAutocompleteSuggestions
+  getAutocompleteSuggestions,
+  getRecentPayments
 } = require('../controllers/salesController');
 
 const router = express.Router();
@@ -83,6 +84,11 @@ router.get('/products', [protect, requireEmployee], getUniqueProducts);
 // @access  Private (Admin/Employee)
 router.get('/autocomplete/:field', [protect, requireEmployee], getAutocompleteSuggestions);
 
+// @route   GET /api/payments/recent
+// @desc    Get recent payments
+// @access  Private (Admin/Employee)
+router.get('/payments/recent', [protect, requireEmployee], getRecentPayments);
+
 // @route   GET /api/sales/:id
 // @desc    Get sale by ID with payment history
 // @access  Private (Admin/Employee)
@@ -138,7 +144,8 @@ router.post('/:id/payments', [
   body('paymentMethod', 'Payment method must be valid').optional().isIn(['cash', 'bank_transfer', 'check', 'card', 'other']),
   body('reference', 'Reference cannot be more than 100 characters').optional().isLength({ max: 100 }),
   body('notes', 'Notes cannot be more than 500 characters').optional().isLength({ max: 500 }),
-  body('paymentDate', 'Payment date must be a valid date').optional().isISO8601()
+  body('paymentDate', 'Payment date must be a valid date').optional().isISO8601(),
+  body('discount', 'Discount must be a non-negative number').optional().isFloat({ min: 0 })
 ], validateRequest, addPayment);
 
 // @route   DELETE /api/sales/:id

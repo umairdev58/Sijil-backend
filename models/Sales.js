@@ -75,11 +75,6 @@ const salesSchema = new mongoose.Schema({
     default: 0,
     min: [0, 'VAT amount cannot be negative']
   },
-  discount: {
-    type: Number,
-    default: 0,
-    min: [0, 'Discount cannot be negative']
-  },
   amount: {
     type: Number,
     default: 0,
@@ -148,11 +143,9 @@ salesSchema.pre('save', function(next) {
   // Calculate VAT amount based on percentage
   this.vatAmount = (subtotal * this.vatPercentage) / 100;
   
-  // Discount is now a unit amount (fixed value), not a percentage
-  // this.discount is already set as a unit amount
   
   // Calculate final amount
-  this.amount = subtotal + this.vatAmount - this.discount;
+  this.amount = subtotal + this.vatAmount;
   
   // Calculate outstanding amount
   this.outstandingAmount = this.amount - this.receivedAmount;
@@ -184,10 +177,16 @@ salesSchema.methods.addPayment = async function(paymentData) {
     paymentMethod: paymentData.paymentMethod || 'cash',
     reference: paymentData.reference,
     notes: paymentData.notes,
-    paymentDate: paymentData.paymentDate || new Date()
+    paymentDate: paymentData.paymentDate || new Date(),
+    discount: paymentData.discount || 0
   });
   
   await payment.save();
+  
+  // Apply discount to sale amount if provided
+  if (paymentData.discount && paymentData.discount > 0) {
+    this.amount -= paymentData.discount;
+  }
   
   // Update sale with new payment
   this.receivedAmount += paymentData.amount;
