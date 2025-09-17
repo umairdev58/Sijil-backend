@@ -471,7 +471,6 @@ const updateSale = async (req, res) => {
       quantity,
       rate,
       vatPercentage = 0,
-      discount = 0,
       dueDate
     } = req.body;
 
@@ -522,7 +521,7 @@ const updateSale = async (req, res) => {
     sale.quantity = quantity;
     sale.rate = rate;
     sale.vatPercentage = vatPercentage;
-    sale.discount = discount;
+    // Discount is managed via payments now; do not set on sale during updates
     sale.dueDate = new Date(dueDate);
     sale.updatedBy = req.user.id;
 

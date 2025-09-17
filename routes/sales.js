@@ -129,7 +129,6 @@ router.put('/:id', [
   body('quantity', 'Quantity must be a positive number').isInt({ min: 1 }),
   body('rate', 'Rate must be a positive number').isFloat({ min: 0 }),
   body('vatPercentage', 'VAT percentage must be between 0 and 100').optional().isFloat({ min: 0, max: 100 }),
-  body('discount', 'Discount must be a positive number').optional().isFloat({ min: 0 }),
   body('dueDate', 'Due date is required').isISO8601()
 ], validateRequest, updateSale);
 
