@@ -17,50 +17,45 @@ const getContainerStatement = async (req, res) => {
       });
     }
 
-    // First, try to get existing statement
+    // Always build products from latest sales to avoid stale statements
+    const salesData = await Sales.find({ containerNo })
+      .populate('createdBy', 'name email')
+      .sort({ createdAt: 1 });
+
+    if (salesData.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Container not found',
+        message: `No data found for container number: ${containerNo}`
+      });
+    }
+
+    const latestProducts = salesData.map((sale, index) => ({
+      srNo: index + 1,
+      product: sale.product,
+      quantity: sale.quantity,
+      unitPrice: sale.rate,
+      amountWithoutVAT: sale.amount - sale.vatAmount
+    }));
+
+    // Fetch existing statement (to preserve expenses), or create a new one
     let statement = await ContainerStatement.getByContainerNo(containerNo);
 
     if (!statement) {
-      // If no statement exists, try to generate one from sales data
-      const salesData = await Sales.find({ containerNo })
-        .populate('createdBy', 'name email')
-        .sort({ createdAt: 1 });
-
-      if (salesData.length === 0) {
-        return res.status(404).json({
-          success: false,
-          error: 'Container not found',
-          message: `No data found for container number: ${containerNo}`
-        });
-      }
-
-      // Generate statement from sales data
-      const products = salesData.map((sale, index) => ({
-        srNo: index + 1,
-        product: sale.product,
-        quantity: sale.quantity,
-        unitPrice: sale.rate,
-        amountWithoutVAT: sale.amount - sale.vatAmount // Amount without VAT
-      }));
-
-      // Calculate totals
-      const totalQuantity = products.reduce((sum, product) => sum + product.quantity, 0);
-      const grossSale = products.reduce((sum, product) => sum + product.amountWithoutVAT, 0);
-
-      // Create new statement
       statement = new ContainerStatement({
         containerNo,
-        products,
-        expenses: [], // Start with empty expenses
-        grossSale,
-        totalExpenses: 0,
-        netSale: grossSale,
-        totalQuantity,
+        products: latestProducts,
+        expenses: [],
         createdBy: req.user.id
       });
-
-      await statement.save();
+    } else {
+      // Update products with latest sales-derived data
+      statement.products = latestProducts;
+      statement.updatedBy = req.user.id;
     }
+
+    // Save to trigger pre-save totals recalculation
+    await statement.save();
 
     res.json({
       success: true,
