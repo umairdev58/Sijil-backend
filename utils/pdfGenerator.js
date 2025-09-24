@@ -199,7 +199,7 @@ class PDFGenerator {
     const boxWidth = (this.contentWidth - 30) / 4;
     const boxHeight = 60;
     const startX = this.margin;
-    const startY = this.currentY + 10;
+    const startY = this.currentY + 30;
 
     // Total Sales Box
     this.drawSummaryBox(startX, startY, boxWidth, boxHeight, '#4299e1', 'Total Sales', summary.totalSales.toString(), '#2b6cb0');
@@ -213,7 +213,7 @@ class PDFGenerator {
     // Outstanding Box
     this.drawSummaryBox(startX + (boxWidth + 10) * 3, startY, boxWidth, boxHeight, '#f56565', 'Outstanding', `AED ${summary.totalOutstanding.toLocaleString()}`, '#c53030');
 
-    this.currentY = startY + boxHeight + 60; // Increased spacing after summary boxes
+    this.currentY = startY + boxHeight + 20; // Increased spacing after summary boxes
     this.doc.y = this.currentY;
   }
 
@@ -322,20 +322,20 @@ class PDFGenerator {
     this.doc.fontSize(14).font('Helvetica-Bold');
     this.doc.fillColor('#2d3748');
     this.doc.text('SALES DETAILS', this.margin, this.currentY);
-    this.doc.moveDown(3); // Increased spacing after heading
+    this.doc.moveDown(5); // Increased spacing after heading
 
     // Table headers
-    const headers = ['Date', 'Invoice #', 'Customer', 'Container', 'Product', 'Amount', 'Status'];
-    const columnWidths = [60, 70, 100, 70, 100, 70, 65];
+    const headers = ['Date', 'Invoice #', 'Customer', 'Container', 'Product', 'Rate', 'Quantity', 'Amount'];
+    const columnWidths = [50, 60, 80, 60, 80, 50, 50, 60];
     const totalWidth = columnWidths.reduce((a, b) => a + b, 0);
 
-    this.drawTableHeader(headers, columnWidths, this.currentY + 10);
-    this.currentY += 35;
+    this.drawTableHeader(headers, columnWidths, this.currentY + 30);
+    this.currentY += 65;
 
          // Table rows
      sales.forEach((sale, index) => {
        // Check if we need a new page - improved logic to prevent splitting rows
-       const rowHeight = 38; // Increased row height by 1.5x (25 * 1.5 = 37.5, rounded to 38)
+       const rowHeight = 30; // Reduced row height for better fit
        const paymentHeight = includePayments && paymentsBySale[sale._id.toString()] ? 
          (20 /* header */) + (paymentsBySale[sale._id.toString()].length * 18) : 0;
        const totalRowHeight = rowHeight + paymentHeight + (paymentHeight ? 15 /* separator */ + 10 /* spacing */ : 0);
@@ -368,7 +368,7 @@ class PDFGenerator {
     this.doc.fillColor('#2c3e50');
     this.doc.rect(this.margin, y, columnWidths.reduce((a, b) => a + b, 0), 25).fill();
     this.doc.fillColor('white');
-    this.doc.fontSize(9).font('Helvetica-Bold');
+    this.doc.fontSize(8).font('Helvetica-Bold');
     
     let x = this.margin;
     headers.forEach((header, i) => {
@@ -382,44 +382,50 @@ class PDFGenerator {
    drawSalesRow(sale, columnWidths, y, index) {
      // Always white background for invoice rows
      this.doc.fillColor('white');
-     this.doc.rect(this.margin, y, columnWidths.reduce((a, b) => a + b, 0), 38).fill(); // Increased height to match rowHeight
+     this.doc.rect(this.margin, y, columnWidths.reduce((a, b) => a + b, 0), 30).fill(); // Height matches rowHeight
      this.doc.fillColor('black');
      
      let x = this.margin;
-     this.doc.fontSize(9).font('Helvetica'); // Increased font size
+     this.doc.fontSize(8).font('Helvetica'); // Reduced font size for better fit
      
      // Date
      const formattedDate = new Date(sale.invoiceDate).toLocaleDateString('en-GB');
-     this.doc.text(formattedDate, x + 5, y + 12, { width: columnWidths[0] - 10 }); // Adjusted y offset for larger row
+     this.doc.text(formattedDate, x + 5, y + 10, { width: columnWidths[0] - 10 }); // Adjusted y offset for compact row
      x += columnWidths[0];
      
      // Invoice Number
      this.doc.font('Helvetica-Bold');
-     this.doc.text(sale.invoiceNumber, x + 5, y + 12, { width: columnWidths[1] - 10 }); // Adjusted y offset
+     this.doc.text(sale.invoiceNumber, x + 5, y + 10, { width: columnWidths[1] - 10 }); // Adjusted y offset
      x += columnWidths[1];
      
      // Customer
      this.doc.font('Helvetica');
-     this.doc.text(sale.customer, x + 5, y + 12, { width: columnWidths[2] - 10, ellipsis: true }); // Adjusted y offset
+     this.doc.text(sale.customer, x + 5, y + 10, { width: columnWidths[2] - 10, ellipsis: true }); // Adjusted y offset
      x += columnWidths[2];
      
      // Container
-     this.doc.text(sale.containerNo, x + 5, y + 12, { width: columnWidths[3] - 10, ellipsis: true }); // Adjusted y offset
+     this.doc.text(sale.containerNo, x + 5, y + 10, { width: columnWidths[3] - 10, ellipsis: true }); // Adjusted y offset
      x += columnWidths[3];
      
      // Product
-     this.doc.text(sale.product, x + 5, y + 12, { width: columnWidths[4] - 10, ellipsis: true }); // Adjusted y offset
+     this.doc.text(sale.product, x + 5, y + 10, { width: columnWidths[4] - 10, ellipsis: true }); // Adjusted y offset
      x += columnWidths[4];
+     
+     // Rate
+     this.doc.font('Helvetica-Bold');
+     const rateValue = sale.rate || 0;
+     this.doc.text(`AED ${rateValue.toLocaleString()}`, x + 5, y + 10, { width: columnWidths[5] - 10, align: 'right' });
+     x += columnWidths[5];
+     
+     // Quantity
+     this.doc.font('Helvetica');
+     const quantityValue = sale.quantity || 0;
+     this.doc.text(quantityValue.toString(), x + 5, y + 10, { width: columnWidths[6] - 10, align: 'center' });
+     x += columnWidths[6];
      
      // Amount
      this.doc.font('Helvetica-Bold');
-     this.doc.text(`AED ${sale.amount.toLocaleString()}`, x + 5, y + 12, { width: columnWidths[5] - 10, align: 'right' }); // Adjusted y offset
-     x += columnWidths[5];
-     
-     // Status with proper line break
-     this.doc.fillColor(this.getStatusColor(sale.status));
-     const statusText = sale.status.replace('_', ' ').toUpperCase();
-     this.doc.text(statusText, x + 5, y + 12, { width: columnWidths[6] - 10 }); // Adjusted y offset
+     this.doc.text(`AED ${sale.amount.toLocaleString()}`, x + 5, y + 10, { width: columnWidths[7] - 10, align: 'right' }); // Adjusted y offset
      this.doc.fillColor('black');
    }
 
@@ -520,8 +526,8 @@ class PDFGenerator {
     this.doc.text(`Page ${this.doc.bufferedPageRange().count}`, this.pageWidth - this.margin - 50, footerY);
     
     // Format footer with single line generation info
-    const generationInfo = `Generated on ${new Date().toLocaleDateString('en-GB')} at ${new Date().toLocaleTimeString('en-GB')}`;
-    this.doc.text(generationInfo, { align: 'center' });
+    // const generationInfo = `Generated on ${new Date().toLocaleDateString('en-GB')} at ${new Date().toLocaleTimeString('en-GB')}`;
+    // this.doc.text(generationInfo, { align: 'center' });
   }
 
   // Generate complete sales report
@@ -1027,7 +1033,7 @@ class PDFGenerator {
     // Footer
     this.doc.fontSize(10).font('Helvetica');
     this.doc.fillColor('#4a5568');
-    this.doc.text(`Report generated on ${new Date().toLocaleString('en-GB')}`, this.margin, this.pageHeight - 50, { align: 'center' });
+    // this.doc.text(`Report generated on ${new Date().toLocaleString('en-GB')}`, this.margin, this.pageHeight - 50, { align: 'center' });
     
     this.doc.end();
   }

@@ -1107,6 +1107,8 @@ const generateSalesReport = async (req, res) => {
         supplier: sale.supplier,
         containerNo: sale.containerNo,
         product: sale.product,
+        rate: sale.rate,
+        quantity: sale.quantity,
         invoiceDate: sale.invoiceDate,
         dueDate: sale.dueDate,
         amount: sale.amount,
@@ -1132,19 +1134,20 @@ const generateSalesReport = async (req, res) => {
     // Return in requested format
     if (format === 'csv') {
       // Generate CSV
-      const csvHeaders = ['Invoice Number', 'Customer', 'Supplier', 'Container No', 'Product', 'Invoice Date', 'Due Date', 'Amount', 'Received', 'Outstanding', 'Status'];
+      const csvHeaders = ['Invoice Number', 'Customer', 'Supplier', 'Container No', 'Product', 'Rate', 'Quantity', 'Invoice Date', 'Due Date', 'Amount', 'Received', 'Outstanding'];
       const csvData = sales.map(sale => [
         sale.invoiceNumber,
         sale.customer,
         sale.supplier,
         sale.containerNo,
         sale.product,
+        sale.rate || 0,
+        sale.quantity || 0,
         new Date(sale.invoiceDate).toLocaleDateString(),
         new Date(sale.dueDate).toLocaleDateString(),
         sale.amount,
         sale.receivedAmount,
-        sale.outstandingAmount,
-        sale.status
+        sale.outstandingAmount
       ]);
       
       const csvContent = [csvHeaders, ...csvData]
