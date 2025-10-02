@@ -578,10 +578,12 @@ const addPayment = async (req, res) => {
       });
     }
 
-    if (amount <= 0) {
+    const numericAmount = Number(amount) || 0;
+    const numericDiscount = Number(discount) || 0;
+    if (numericAmount <= 0 && numericDiscount <= 0) {
       return res.status(400).json({
-        error: 'Invalid amount',
-        message: 'Payment amount must be greater than 0'
+        error: 'Invalid payment',
+        message: 'Either payment amount or discount must be greater than 0'
       });
     }
 
@@ -593,23 +595,23 @@ const addPayment = async (req, res) => {
       });
     }
 
-    if (amount > sale.outstandingAmount) {
+    if ((numericAmount + numericDiscount) > sale.outstandingAmount) {
       return res.status(400).json({
         error: 'Overpayment not allowed',
-        message: `Payment amount (AED ${amount.toLocaleString('en-AE', { minimumFractionDigits: 2 })}) cannot exceed the outstanding amount (AED ${sale.outstandingAmount.toLocaleString('en-AE', { minimumFractionDigits: 2 })}). Please enter an amount less than or equal to AED ${sale.outstandingAmount.toLocaleString('en-AE', { minimumFractionDigits: 2 })}.`
+        message: `Amount + Discount (AED ${(numericAmount + numericDiscount).toLocaleString('en-AE', { minimumFractionDigits: 2 })}) cannot exceed the outstanding amount (AED ${sale.outstandingAmount.toLocaleString('en-AE', { minimumFractionDigits: 2 })}).`
       });
     }
 
     // Add payment to sale
     const payment = await sale.addPayment({
-      amount,
+      amount: numericAmount,
       receivedBy: req.user.id,
       paymentType,
       paymentMethod,
       reference,
       notes,
       paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
-      discount
+      discount: numericDiscount
     });
 
     // Create a new payment entry in the daily ledger

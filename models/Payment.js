@@ -9,7 +9,7 @@ const paymentSchema = new mongoose.Schema({
   amount: {
     type: Number,
     required: [true, 'Payment amount is required'],
-    min: [0.01, 'Payment amount must be greater than 0']
+    min: [0, 'Payment amount cannot be negative']
   },
   receivedBy: {
     type: mongoose.Schema.Types.ObjectId,
