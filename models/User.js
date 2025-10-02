@@ -28,13 +28,13 @@ const userSchema = new mongoose.Schema({
   },
   department: {
     type: String,
-    required: [true, 'Department is required'],
-    trim: true
+    trim: true,
+    default: ''
   },
   position: {
     type: String,
-    required: [true, 'Position is required'],
-    trim: true
+    trim: true,
+    default: ''
   },
   trn: {
     type: String,

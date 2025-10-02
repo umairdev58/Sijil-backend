@@ -18,6 +18,7 @@ const dubaiTransportRoutes = require('./routes/dubaiTransport');
 const dubaiClearanceRoutes = require('./routes/dubaiClearance');
 const containerStatementRoutes = require('./routes/containerStatements');
 const { initializeAdmin } = require('./utils/adminInitializer');
+const { formatNumbersDeep } = require('./utils/numberFormatter');
 
 const app = express();
 
@@ -58,6 +59,24 @@ app.use(limiter);
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Global response formatter: ceil all numeric values to two decimals
+app.use((req, res, next) => {
+  const originalJson = res.json.bind(res);
+  res.json = (body) => {
+    try {
+      if (res.locals && res.locals.skipNumberFormatting) {
+        return originalJson(body);
+      }
+      const formatted = formatNumbersDeep(body);
+      return originalJson(formatted);
+    } catch (err) {
+      // Fallback to original body if formatting fails
+      return originalJson(body);
+    }
+  };
+  next();
+});
 
 // Database connection with better error handling
 const connectDB = async () => {

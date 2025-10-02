@@ -23,8 +23,8 @@ router.post('/', [
   body('name', 'Name is required').notEmpty().trim(),
   body('email', 'Please include a valid email').isEmail(),
   body('password', 'Password must be at least 6 characters').isLength({ min: 6 }),
-  body('department', 'Department is required').notEmpty().trim(),
-  body('position', 'Position is required').notEmpty().trim()
+  body('department').optional().trim(),
+  body('position').optional().trim()
 ], validateRequest, createUser);
 
 // @route   GET /api/users
@@ -45,8 +45,8 @@ router.put('/:id', [
   requireAdmin,
   body('name', 'Name is required').notEmpty().trim(),
   body('email', 'Please include a valid email').isEmail(),
-  body('department', 'Department is required').notEmpty().trim(),
-  body('position', 'Position is required').notEmpty().trim()
+  body('department').optional().trim(),
+  body('position').optional().trim()
 ], validateRequest, updateUser);
 
 // @route   DELETE /api/users/:id

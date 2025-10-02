@@ -5,7 +5,7 @@ const User = require('../models/User');
 // @access  Private (Admin)
 const createUser = async (req, res) => {
   try {
-    const { name, email, password, department, position } = req.body;
+    const { name, email, password, department = '', position = '', role } = req.body;
 
     // Check if user already exists
     const existingUser = await User.findByEmail(email);
@@ -16,14 +16,14 @@ const createUser = async (req, res) => {
       });
     }
 
-    // Create new employee
+    // Create new user (default role employee, allow admin to assign role explicitly)
     const newUser = new User({
       name,
       email,
       password,
       department,
       position,
-      role: 'employee',
+      role: role && ['admin', 'employee'].includes(role) ? role : 'employee',
       createdBy: req.user.id
     });
 
@@ -142,7 +142,7 @@ const getUserById = async (req, res) => {
 // @access  Private (Admin)
 const updateUser = async (req, res) => {
   try {
-    const { name, email, department, position, isActive } = req.body;
+    const { name, email, department = '', position = '', isActive, role } = req.body;
 
     const user = await User.findById(req.params.id);
     
@@ -171,6 +171,16 @@ const updateUser = async (req, res) => {
     user.position = position;
     if (typeof isActive === 'boolean') {
       user.isActive = isActive;
+    }
+    // Allow admin to change role (guardrails: prevent self-demotion from admin to employee)
+    if (role && ['admin', 'employee'].includes(role)) {
+      if (user._id.toString() === req.user.id && user.role === 'admin' && role !== 'admin') {
+        return res.status(400).json({
+          error: 'Cannot change own role',
+          message: 'Admins cannot change their own role'
+        });
+      }
+      user.role = role;
     }
 
     await user.save();

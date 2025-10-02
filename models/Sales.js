@@ -137,18 +137,19 @@ salesSchema.index({ lastPaymentDate: 1 });
 
 // Pre-save middleware to calculate amounts and outstanding amount
 salesSchema.pre('save', function(next) {
+  const { ceilToTwoDecimals } = require('../utils/numberFormatter');
   // Calculate subtotal
-  const subtotal = this.quantity * this.rate;
+  const subtotal = ceilToTwoDecimals(this.quantity * this.rate);
   
   // Calculate VAT amount based on percentage
-  this.vatAmount = (subtotal * this.vatPercentage) / 100;
+  this.vatAmount = ceilToTwoDecimals((subtotal * this.vatPercentage) / 100);
   
   
   // Calculate final amount
-  this.amount = subtotal + this.vatAmount;
+  this.amount = ceilToTwoDecimals(subtotal + this.vatAmount);
   
   // Calculate outstanding amount
-  this.outstandingAmount = this.amount - this.receivedAmount;
+  this.outstandingAmount = ceilToTwoDecimals(this.amount - this.receivedAmount);
   
   // Update status based on outstanding amount and due date
   if (this.outstandingAmount <= 0) {
@@ -167,6 +168,7 @@ salesSchema.pre('save', function(next) {
 // Instance method to add payment
 salesSchema.methods.addPayment = async function(paymentData) {
   const Payment = require('./Payment');
+  const { ceilToTwoDecimals } = require('../utils/numberFormatter');
   
   // Create new payment record
   const payment = new Payment({
@@ -185,12 +187,12 @@ salesSchema.methods.addPayment = async function(paymentData) {
   
   // Apply discount to sale amount if provided
   if (paymentData.discount && paymentData.discount > 0) {
-    this.amount -= paymentData.discount;
+    this.amount = ceilToTwoDecimals(this.amount - paymentData.discount);
   }
   
   // Update sale with new payment
-  this.receivedAmount += paymentData.amount;
-  this.outstandingAmount = this.amount - this.receivedAmount;
+  this.receivedAmount = ceilToTwoDecimals(this.receivedAmount + paymentData.amount);
+  this.outstandingAmount = ceilToTwoDecimals(this.amount - this.receivedAmount);
   this.lastPaymentDate = payment.paymentDate;
   
   // Update status
