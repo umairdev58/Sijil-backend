@@ -75,6 +75,11 @@ const salesSchema = new mongoose.Schema({
     default: 0,
     min: [0, 'VAT amount cannot be negative']
   },
+  discountTotal: {
+    type: Number,
+    default: 0,
+    min: [0, 'Discount total cannot be negative']
+  },
   amount: {
     type: Number,
     default: 0,
@@ -146,7 +151,8 @@ salesSchema.pre('save', function(next) {
   
   
   // Calculate final amount
-  this.amount = ceilToTwoDecimals(subtotal + this.vatAmount);
+  const discountTotal = Number(this.discountTotal || 0);
+  this.amount = ceilToTwoDecimals(Math.max(0, subtotal + this.vatAmount - discountTotal));
   
   // Calculate outstanding amount
   this.outstandingAmount = ceilToTwoDecimals(this.amount - this.receivedAmount);
@@ -185,13 +191,18 @@ salesSchema.methods.addPayment = async function(paymentData) {
   
   await payment.save();
   
-  // Apply discount to sale amount if provided
-  if (paymentData.discount && paymentData.discount > 0) {
-    this.amount = ceilToTwoDecimals(this.amount - paymentData.discount);
+  // Accumulate discount separately and recalc totals
+  const discountIncrement = Number(paymentData.discount || 0);
+  if (discountIncrement > 0) {
+    this.discountTotal = ceilToTwoDecimals((this.discountTotal || 0) + discountIncrement);
   }
   
   // Update sale with new payment
   this.receivedAmount = ceilToTwoDecimals(this.receivedAmount + paymentData.amount);
+  // Recompute amount after discount and VAT
+  const subtotal = ceilToTwoDecimals(this.quantity * this.rate);
+  this.vatAmount = ceilToTwoDecimals((subtotal * this.vatPercentage) / 100);
+  this.amount = ceilToTwoDecimals(Math.max(0, subtotal + this.vatAmount - (this.discountTotal || 0)));
   this.outstandingAmount = ceilToTwoDecimals(this.amount - this.receivedAmount);
   this.lastPaymentDate = payment.paymentDate;
   

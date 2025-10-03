@@ -767,10 +767,17 @@ const deletePayment = async (req, res) => {
 
     // Recalculate sale amounts
     const remainingPayments = await Payment.find({ saleId: req.params.saleId });
-    const totalReceived = remainingPayments.reduce((sum, p) => sum + p.amount, 0);
+    const totalReceived = remainingPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+    const totalDiscount = remainingPayments.reduce((sum, p) => sum + (p.discount || 0), 0);
     
     sale.receivedAmount = totalReceived;
-    sale.outstandingAmount = sale.amount - totalReceived;
+    sale.discountTotal = totalDiscount;
+    // Recompute amount/outstanding from base components
+    const { ceilToTwoDecimals } = require('../utils/numberFormatter');
+    const subtotal = ceilToTwoDecimals(sale.quantity * sale.rate);
+    sale.vatAmount = ceilToTwoDecimals((subtotal * sale.vatPercentage) / 100);
+    sale.amount = ceilToTwoDecimals(Math.max(0, subtotal + sale.vatAmount - sale.discountTotal));
+    sale.outstandingAmount = ceilToTwoDecimals(sale.amount - sale.receivedAmount);
     
     // Update status based on outstanding amount and due date
     if (sale.outstandingAmount <= 0) {
