@@ -363,8 +363,8 @@ class PDFGenerator {
     this.doc.y = this.currentY;
   }
 
-  // Draw table header
-  drawTableHeader(headers, columnWidths, y) {
+  // Draw table header (optional per-column alignment)
+  drawTableHeader(headers, columnWidths, y, alignments = []) {
     this.doc.fillColor('#2c3e50');
     this.doc.rect(this.margin, y, columnWidths.reduce((a, b) => a + b, 0), 25).fill();
     this.doc.fillColor('white');
@@ -372,7 +372,8 @@ class PDFGenerator {
     
     let x = this.margin;
     headers.forEach((header, i) => {
-      this.doc.text(header, x + 5, y + 8);
+      const align = alignments[i] || 'left';
+      this.doc.text(header, x + 5, y + 8, { width: columnWidths[i] - 10, align });
       x += columnWidths[i];
     });
     this.doc.fillColor('black');
@@ -1039,22 +1040,57 @@ class PDFGenerator {
   }
 
   // Generate Container Statement PDF
-  generateContainerStatement(res, statement) {
+  generateContainerStatement(res, statement, extras = {}) {
     const filename = `container-statement-${statement.containerNo}-${new Date().toISOString().split('T')[0]}.pdf`;
     const doc = this.initDocument(res, filename);
+
+    // Add company logo at the top - centered and properly aligned
+    try {
+      const logoPath = require('path').join(__dirname, '../assets/images/company-logo.png');
+      // Alternative path if assets folder doesn't exist
+      const altLogoPath = require('path').join(__dirname, '../company-logo.png');
+      
+      if (require('fs').existsSync(logoPath)) {
+        // Center the logo horizontally and preserve aspect ratio (avoid vertical stretch)
+        const logoWidth = this.contentWidth * 0.8; // narrower to reduce height naturally
+        const logoX = this.margin + (this.contentWidth - logoWidth) / 2; // center
+        this.doc.image(logoPath, logoX, 20, { width: logoWidth });
+      } else if (require('fs').existsSync(altLogoPath)) {
+        const logoWidth = this.contentWidth * 0.8;
+        const logoX = this.margin + (this.contentWidth - logoWidth) / 2;
+        this.doc.image(altLogoPath, logoX, 20, { width: logoWidth });
+      }
+    } catch (error) {
+      console.log('Logo not found, continuing without logo');
+    }
 
     // Header
     this.doc.fontSize(20).font('Helvetica-Bold');
     this.doc.fillColor('#1f2937');
-    this.doc.text('CONTAINER STATEMENT', this.margin, 50, { align: 'center' });
+    this.doc.text('GOODS SALE STATEMENT', this.margin, 110, { align: 'center' });
     this.doc.moveDown(0.5);
     this.doc.fontSize(11).font('Helvetica');
     this.doc.fillColor('#4b5563');
-    this.doc.text(`Container: ${statement.containerNo}`, this.margin, 80, { align: 'center' });
-    this.doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, this.margin, 96, { align: 'center' });
+    // Company Name & Sr No left-aligned (left half), Generated on right-aligned (right half)
+    const metaYTop = 150;
+    const halfWidth = this.contentWidth / 2;
+    const rightX = this.margin + this.contentWidth - (halfWidth - 10);
+    // Left block
+    if (extras.companyName) {
+      this.doc.text(`Company Name: ${extras.companyName}`, this.margin, metaYTop, { width: halfWidth - 10, align: 'left' });
+    }
+    if (extras.srNo) {
+      this.doc.text(`Sr No: ${this.sanitizeField(extras.srNo)}`, this.margin, metaYTop + 16, { width: halfWidth - 10, align: 'left' });
+    }
+    // Right block values aligned to right edge
+    this.doc.text(`Container: ${statement.containerNo}`, this.margin + halfWidth, metaYTop, { width: halfWidth - 10, align: 'right' });
+    this.doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, this.margin + halfWidth, metaYTop + 16, { width: halfWidth - 10, align: 'right' });
 
-    this.currentY = 120;
+    // Push content start below meta to avoid overlap with summary tiles
+    this.currentY = 210;
     this.doc.y = this.currentY;
+
+    // Remove previous marka legend; not needed when Sr No is single value
 
     // Group products by product + unitPrice
     const map = new Map();
@@ -1114,13 +1150,14 @@ class PDFGenerator {
 
     const headers = ['SR #', 'PRODUCT', 'QTY', 'UNIT PRICE', 'AMOUNT (AED)'];
     const columnWidths = [45, 200, 70, 90, 120];
-    this.drawTableHeader(headers, columnWidths, this.currentY);
+    const alignments = ['left', 'left', 'right', 'right', 'right'];
+    this.drawTableHeader(headers, columnWidths, this.currentY, alignments);
     this.currentY += 35;
 
     rows.forEach((r, idx) => {
       if (this.currentY + 25 > this.pageHeight - 100) {
         this.addNewPage();
-        this.drawTableHeader(headers, columnWidths, this.currentY);
+        this.drawTableHeader(headers, columnWidths, this.currentY, alignments);
         this.currentY += 35;
       }
       const y = this.currentY;

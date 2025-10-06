@@ -365,7 +365,12 @@ module.exports = {
       }
 
       const pdf = new PDFGenerator();
-      pdf.generateContainerStatement(res, statement);
+      // Determine company name and a single shared Marka (as Sr No) for the container
+      const salesForContainer = await Sales.find({ containerNo }).sort({ createdAt: 1 });
+      const companyName = salesForContainer[0] ? (salesForContainer[0].supplier || salesForContainer[0].customer) : '';
+      const uniqueMarkas = Array.from(new Set(salesForContainer.map(s => s.marka).filter(Boolean)));
+      const srNo = uniqueMarkas.length > 0 ? uniqueMarkas[0] : '';
+      pdf.generateContainerStatement(res, statement, { companyName, srNo });
     } catch (error) {
       console.error('Download statement PDF error:', error);
       res.status(500).json({ success: false, message: 'Failed to generate PDF' });
