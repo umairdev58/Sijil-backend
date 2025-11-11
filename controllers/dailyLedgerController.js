@@ -160,6 +160,60 @@ const getLedgerEntries = async (req, res) => {
   }
 };
 
+// Get all ledger entries with filters
+const getAllLedgerEntries = async (req, res) => {
+  try {
+    const { startDate, endDate, type, category, search } = req.query;
+    
+    let query = {};
+    
+    // Date range filter
+    if (startDate || endDate) {
+      query.date = {};
+      if (startDate) {
+        query.date.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        query.date.$lte = new Date(endDate);
+      }
+    }
+    
+    // Type filter
+    if (type && type !== 'all') {
+      query.type = type;
+    }
+    
+    // Category filter
+    if (category) {
+      query.category = { $regex: category, $options: 'i' };
+    }
+    
+    // Search filter
+    if (search) {
+      query.$or = [
+        { description: { $regex: search, $options: 'i' } },
+        { reference: { $regex: search, $options: 'i' } },
+        { note: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    const entries = await LedgerEntry.find(query)
+      .sort({ date: -1, createdAt: -1 })
+      .populate('createdBy', 'name email');
+    
+    res.json({
+      success: true,
+      data: entries
+    });
+  } catch (error) {
+    console.error('Error getting all ledger entries:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
 // Delete ledger entry
 const deleteLedgerEntry = async (req, res) => {
   try {
@@ -427,6 +481,7 @@ module.exports = {
   createOrUpdateDailyLedger,
   addLedgerEntry,
   getLedgerEntries,
+  getAllLedgerEntries,
   deleteLedgerEntry,
   closeDailyLedger,
   getLedgerSummary,

@@ -14,6 +14,7 @@ router.post('/', dailyLedgerController.createOrUpdateDailyLedger);
 router.put('/:date/close', dailyLedgerController.closeDailyLedger);
 
 // Ledger Entry routes
+router.get('/entries', dailyLedgerController.getAllLedgerEntries);
 router.get('/:date/entries', dailyLedgerController.getLedgerEntries);
 router.post('/entries', dailyLedgerController.addLedgerEntry);
 router.delete('/entries/:id', dailyLedgerController.deleteLedgerEntry);

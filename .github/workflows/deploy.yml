@@ -1,0 +1,88 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - '**/*.js'
+      - '**/*.json'
+      - '**/.env.example'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          APP_DIR: ${{ secrets.APP_DIR }}
+          GIT_BRANCH: ${{ github.ref_name }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
+            set -e
+            
+            # Default values
+            APP_DIR="${APP_DIR:-/opt/sijil/app}"
+            BACKEND_DIR="${APP_DIR}/backend"
+            GIT_BRANCH="${GIT_BRANCH:-main}"
+            
+            echo "🚀 Starting deployment..."
+            echo "📁 App directory: ${APP_DIR}"
+            echo "🌿 Branch: ${GIT_BRANCH}"
+            
+            # Navigate to app directory
+            cd ${APP_DIR}
+            
+            # Pull latest code
+            echo "📥 Pulling latest code from ${GIT_BRANCH}..."
+            git fetch origin
+            git checkout ${GIT_BRANCH}
+            git pull origin ${GIT_BRANCH}
+            
+            # Navigate to backend directory
+            cd ${BACKEND_DIR}
+            
+            # Install/update dependencies
+            echo "📦 Installing dependencies..."
+            npm ci || npm install
+            
+            # Restart PM2 process
+            echo "🔄 Restarting application..."
+            pm2 restart sijil-backend || pm2 start server.js --name sijil-backend --update-env
+            
+            # Save PM2 process list
+            pm2 save
+            
+            # Show status
+            echo "✅ Deployment complete!"
+            pm2 status
+          ENDSSH
+
+      - name: Verify deployment
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
+            echo "🔍 Verifying deployment..."
+            sleep 5
+            pm2 status sijil-backend
+            pm2 logs sijil-backend --lines 20 --nostream
+          ENDSSH
+
