@@ -438,8 +438,11 @@ const updateDailyLedgerTotals = async (date) => {
 // Auto-create ledger entry for sales payment
 const createSalesPaymentEntry = async (saleId, paymentAmount, paymentMethod) => {
   try {
-    const sale = await require('./salesController').getSaleById(saleId);
-    if (!sale) return;
+    const sale = await require('./salesController').getSaleByIdHelper(saleId);
+    if (!sale) {
+      console.error('Sale not found for ID:', saleId);
+      return;
+    }
     
     const paymentDate = new Date();
     const mode = paymentMethod === 'cash' ? 'cash' : 'bank';

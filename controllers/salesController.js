@@ -387,6 +387,32 @@ const getSales = async (req, res) => {
   }
 };
 
+// Helper function to get sale by ID (can be called directly)
+const getSaleByIdHelper = async (saleId) => {
+  try {
+    if (!saleId || !saleId.match(/^[0-9a-fA-F]{24}$/)) {
+      console.log('Invalid sale ID format:', saleId);
+      return null;
+    }
+
+    const sale = await Sales.findById(saleId)
+      .populate('createdBy', 'name email')
+      .populate('updatedBy', 'name email')
+      .populate({
+        path: 'payments',
+        populate: {
+          path: 'receivedBy',
+          select: 'name email'
+        }
+      });
+
+    return sale;
+  } catch (error) {
+    console.error('Get sale error:', error);
+    return null;
+  }
+};
+
 // @desc    Get sale by ID with payment history
 // @route   GET /api/sales/:id
 // @access  Private (Admin/Employee)
@@ -406,16 +432,7 @@ const getSaleById = async (req, res) => {
       });
     }
 
-    const sale = await Sales.findById(req.params.id)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email')
-      .populate({
-        path: 'payments',
-        populate: {
-          path: 'receivedBy',
-          select: 'name email'
-        }
-      });
+    const sale = await getSaleByIdHelper(req.params.id);
 
     if (!sale) {
       return res.status(404).json({
@@ -1778,6 +1795,7 @@ module.exports = {
   createSale,
   getSales,
   getSaleById,
+  getSaleByIdHelper,
   updateSale,
   addPayment,
   getPaymentHistory,
