@@ -22,27 +22,54 @@ const { formatNumbersDeep } = require('./utils/numberFormatter');
 
 const app = express();
 
-// Security middleware
-app.use(helmet());
+// Security middleware - configure Helmet to allow CORS
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginEmbedderPolicy: false
+}));
 
-// CORS: reflect origin and expose Content-Disposition so downloads don't error in dev tools
+// CORS: Allow frontend domain and localhost for development
+const allowedOrigins = [
+  'https://sijil-record.com',
+  'https://www.sijil-record.com',
+  'http://localhost:3000',
+  'http://localhost:3001'
+];
+
 const corsOptions = {
-  origin: true,
-  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
-  allowedHeaders: ['Authorization','Content-Type'],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Authorization', 'Content-Type', 'X-Requested-With'],
   exposedHeaders: ['Content-Disposition'],
-  credentials: false,
-  optionsSuccessStatus: 204
+  credentials: true,
+  optionsSuccessStatus: 204,
+  maxAge: 86400 // 24 hours
 };
+
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
 // Also set headers for streamed responses
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else if (!origin || process.env.NODE_ENV !== 'production') {
+    res.header('Access-Control-Allow-Origin', '*');
+  }
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
+  res.header('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Requested-With');
   res.header('Access-Control-Expose-Headers', 'Content-Disposition');
+  res.header('Access-Control-Allow-Credentials', 'true');
   next();
 });
 
