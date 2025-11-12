@@ -64,7 +64,7 @@ jobs:
             
             # Restart PM2 process
             echo "🔄 Restarting application..."
-            pm2 restart sijil-backend || pm2 start server.js --name sijil-backend --update-env
+            pm2 restart sijil-backend --update-env || pm2 start server.js --name sijil-backend --update-env
             
             # Save PM2 process list
             pm2 save

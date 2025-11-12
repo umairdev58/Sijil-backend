@@ -5,6 +5,236 @@ const PDFGenerator = require('../utils/pdfGenerator');
 const Customer = require('../models/Customer');
 const { createSalesPaymentEntry } = require('./dailyLedgerController');
 
+const escapeRegex = (text = '') => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const toArray = (value) => {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry !== '');
+  }
+  return [];
+};
+
+const buildCustomerOutstandingPipeline = ({
+  search = '',
+  minAmount = '',
+  maxAmount = '',
+  status = '',
+  groupBy = 'customer',
+  productFilters = [],
+  treatAsExactMatch = false,
+} = {}) => {
+  const pipeline = [
+    {
+      $match: {
+        outstandingAmount: { $gt: 0 },
+      },
+    },
+  ];
+
+  if (productFilters.length === 1) {
+    const [filterValue] = productFilters;
+    pipeline.push({
+      $match: {
+        product: {
+          $regex: treatAsExactMatch
+            ? `^${escapeRegex(filterValue)}$`
+            : escapeRegex(filterValue),
+          $options: 'i',
+        },
+      },
+    });
+  } else if (productFilters.length > 1) {
+    pipeline.push({
+      $match: {
+        $or: productFilters.map((value) => ({
+          product: { $regex: `^${escapeRegex(value)}$`, $options: 'i' },
+        })),
+      },
+    });
+  }
+
+  if (groupBy === 'product') {
+    pipeline.push(
+      {
+        $group: {
+          _id: {
+            product: '$product',
+            customer: '$customer',
+          },
+          productName: { $first: '$product' },
+          customerName: { $first: '$customer' },
+          totalOutstanding: { $sum: '$outstandingAmount' },
+          totalAmount: { $sum: '$amount' },
+          totalReceived: { $sum: '$receivedAmount' },
+          invoiceCount: { $sum: 1 },
+          unpaidInvoices: {
+            $sum: { $cond: [{ $eq: ['$status', 'unpaid'] }, 1, 0] },
+          },
+          partiallyPaidInvoices: {
+            $sum: { $cond: [{ $eq: ['$status', 'partially_paid'] }, 1, 0] },
+          },
+          overdueInvoices: {
+            $sum: { $cond: [{ $eq: ['$status', 'overdue'] }, 1, 0] },
+          },
+          lastPaymentDate: { $max: '$lastPaymentDate' },
+          oldestDueDate: { $min: '$dueDate' },
+        },
+      },
+      {
+        $group: {
+          _id: '$productName',
+          productName: { $first: '$productName' },
+          customers: {
+            $push: {
+              customerName: '$customerName',
+              totalOutstanding: '$totalOutstanding',
+              totalAmount: '$totalAmount',
+              totalReceived: '$totalReceived',
+              invoiceCount: '$invoiceCount',
+              unpaidInvoices: '$unpaidInvoices',
+              partiallyPaidInvoices: '$partiallyPaidInvoices',
+              overdueInvoices: '$overdueInvoices',
+              lastPaymentDate: '$lastPaymentDate',
+              oldestDueDate: '$oldestDueDate',
+            },
+          },
+          totalOutstanding: { $sum: '$totalOutstanding' },
+          totalAmount: { $sum: '$totalAmount' },
+          totalReceived: { $sum: '$totalReceived' },
+          totalInvoices: { $sum: '$invoiceCount' },
+          totalCustomers: { $sum: 1 },
+        },
+      },
+      {
+        $addFields: {
+          customers: {
+            $map: {
+              input: '$customers',
+              as: 'customer',
+              in: {
+                $mergeObjects: [
+                  '$$customer',
+                  {
+                    status: {
+                      $cond: [
+                        { $gt: ['$$customer.overdueInvoices', 0] },
+                        'overdue',
+                        {
+                          $cond: [
+                            { $gt: ['$$customer.partiallyPaidInvoices', 0] },
+                            'partially_paid',
+                            'unpaid',
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      }
+    );
+  } else {
+    pipeline.push({
+      $group: {
+        _id: '$customer',
+        customerName: { $first: '$customer' },
+        totalOutstanding: { $sum: '$outstandingAmount' },
+        totalAmount: { $sum: '$amount' },
+        totalReceived: { $sum: '$receivedAmount' },
+        invoiceCount: { $sum: 1 },
+        unpaidInvoices: {
+          $sum: { $cond: [{ $eq: ['$status', 'unpaid'] }, 1, 0] },
+        },
+        partiallyPaidInvoices: {
+          $sum: { $cond: [{ $eq: ['$status', 'partially_paid'] }, 1, 0] },
+        },
+        overdueInvoices: {
+          $sum: { $cond: [{ $eq: ['$status', 'overdue'] }, 1, 0] },
+        },
+        lastPaymentDate: { $max: '$lastPaymentDate' },
+        oldestDueDate: { $min: '$dueDate' },
+      },
+    });
+    pipeline.push({
+      $addFields: {
+        status: {
+          $cond: [
+            { $gt: ['$overdueInvoices', 0] },
+            'overdue',
+            {
+              $cond: [
+                { $gt: ['$partiallyPaidInvoices', 0] },
+                'partially_paid',
+                'unpaid',
+              ],
+            },
+          ],
+        },
+      },
+    });
+  }
+
+  pipeline.push({
+    $sort: { totalOutstanding: -1 },
+  });
+
+  if (search) {
+    if (groupBy === 'product') {
+      pipeline.unshift({
+        $match: {
+          $or: [
+            { customer: { $regex: search, $options: 'i' } },
+            { product: { $regex: search, $options: 'i' } },
+          ],
+        },
+      });
+    } else {
+      pipeline.unshift({
+        $match: {
+          customer: { $regex: search, $options: 'i' },
+        },
+      });
+    }
+  }
+
+  if (minAmount || maxAmount) {
+    const amountFilter = {};
+    if (minAmount) amountFilter.$gte = parseFloat(minAmount);
+    if (maxAmount) amountFilter.$lte = parseFloat(maxAmount);
+
+    pipeline.splice(1, 0, {
+      $match: {
+        outstandingAmount: amountFilter,
+      },
+    });
+  }
+
+  if (status) {
+    const statusFilter = {};
+    if (status === 'overdue') {
+      statusFilter.status = 'overdue';
+    } else if (status === 'partially_paid') {
+      statusFilter.status = 'partially_paid';
+    } else if (status === 'unpaid') {
+      statusFilter.status = 'unpaid';
+    }
+
+    if (Object.keys(statusFilter).length > 0) {
+      pipeline.splice(1, 0, {
+        $match: statusFilter,
+      });
+    }
+  }
+
+  return pipeline;
+};
+
 // @desc    Create new sale
 // @route   POST /api/sales
 // @access  Private (Admin/Employee)
@@ -1327,218 +1557,28 @@ const printInvoice = async (req, res) => {
 // @access  Private (Admin/Employee)
 const getCustomerOutstanding = async (req, res) => {
   try {
-    const { search = '', minAmount = '', maxAmount = '', status = '', groupBy = 'customer', product = '' } = req.query;
+    const { search = '', minAmount = '', maxAmount = '', status = '', groupBy = 'customer' } = req.query;
+    const rawProduct = req.query.product;
+    const rawProducts = req.query.products;
+    const productFilters = [...new Set([...toArray(rawProduct), ...toArray(rawProducts)])];
+    const treatAsExactMatch =
+      rawProducts !== undefined ||
+      Array.isArray(rawProduct) ||
+      (typeof rawProduct === 'string' && rawProduct.includes(','));
 
-    // Build aggregation pipeline
-    const pipeline = [
-      // Match sales with outstanding amounts
-      {
-        $match: {
-          outstandingAmount: { $gt: 0 }
-        }
-      },
-    ];
-
-    // Add product filter if specified
-    if (product) {
-      pipeline.push({
-        $match: {
-          product: { $regex: product, $options: 'i' }
-        }
-      });
-    }
-
-    // Determine grouping strategy
-    if (groupBy === 'product') {
-      // Group by product first, then by customer within each product
-      pipeline.push(
-        {
-          $group: {
-            _id: {
-              product: '$product',
-              customer: '$customer'
-            },
-            productName: { $first: '$product' },
-            customerName: { $first: '$customer' },
-            totalOutstanding: { $sum: '$outstandingAmount' },
-            totalAmount: { $sum: '$amount' },
-            totalReceived: { $sum: '$receivedAmount' },
-            invoiceCount: { $sum: 1 },
-            unpaidInvoices: {
-              $sum: { $cond: [{ $eq: ['$status', 'unpaid'] }, 1, 0] }
-            },
-            partiallyPaidInvoices: {
-              $sum: { $cond: [{ $eq: ['$status', 'partially_paid'] }, 1, 0] }
-            },
-            overdueInvoices: {
-              $sum: { $cond: [{ $eq: ['$status', 'overdue'] }, 1, 0] }
-            },
-            lastPaymentDate: { $max: '$lastPaymentDate' },
-            oldestDueDate: { $min: '$dueDate' }
-          }
-        },
-        {
-          $group: {
-            _id: '$productName',
-            productName: { $first: '$productName' },
-            customers: {
-              $push: {
-                customerName: '$customerName',
-                totalOutstanding: '$totalOutstanding',
-                totalAmount: '$totalAmount',
-                totalReceived: '$totalReceived',
-                invoiceCount: '$invoiceCount',
-                unpaidInvoices: '$unpaidInvoices',
-                partiallyPaidInvoices: '$partiallyPaidInvoices',
-                overdueInvoices: '$overdueInvoices',
-                lastPaymentDate: '$lastPaymentDate',
-                oldestDueDate: '$oldestDueDate'
-              }
-            },
-            totalOutstanding: { $sum: '$totalOutstanding' },
-            totalAmount: { $sum: '$totalAmount' },
-            totalReceived: { $sum: '$totalReceived' },
-            totalInvoices: { $sum: '$invoiceCount' },
-            totalCustomers: { $sum: 1 }
-          }
-        }
-      );
-    } else {
-      // Default: Group by customer
-      pipeline.push({
-        $group: {
-          _id: '$customer',
-          customerName: { $first: '$customer' },
-          totalOutstanding: { $sum: '$outstandingAmount' },
-          totalAmount: { $sum: '$amount' },
-          totalReceived: { $sum: '$receivedAmount' },
-          invoiceCount: { $sum: 1 },
-          unpaidInvoices: {
-            $sum: { $cond: [{ $eq: ['$status', 'unpaid'] }, 1, 0] }
-          },
-          partiallyPaidInvoices: {
-            $sum: { $cond: [{ $eq: ['$status', 'partially_paid'] }, 1, 0] }
-          },
-          overdueInvoices: {
-            $sum: { $cond: [{ $eq: ['$status', 'overdue'] }, 1, 0] }
-          },
-          lastPaymentDate: { $max: '$lastPaymentDate' },
-          oldestDueDate: { $min: '$dueDate' }
-        }
-      });
-    }
-    // Add computed fields based on grouping type
-    if (groupBy === 'product') {
-      pipeline.push({
-        $addFields: {
-          customers: {
-            $map: {
-              input: '$customers',
-              as: 'customer',
-              in: {
-                $mergeObjects: [
-                  '$$customer',
-                  {
-                    status: {
-                      $cond: [
-                        { $gt: ['$$customer.overdueInvoices', 0] },
-                        'overdue',
-                        {
-                          $cond: [
-                            { $gt: ['$$customer.partiallyPaidInvoices', 0] },
-                            'partially_paid',
-                            'unpaid'
-                          ]
-                        }
-                      ]
-                    }
-                  }
-                ]
-              }
-            }
-          }
-        }
-      });
-    } else {
-      pipeline.push({
-        $addFields: {
-          status: {
-            $cond: [
-              { $gt: ['$overdueInvoices', 0] },
-              'overdue',
-              {
-                $cond: [
-                  { $gt: ['$partiallyPaidInvoices', 0] },
-                  'partially_paid',
-                  'unpaid'
-                ]
-              }
-            ]
-          }
-        }
-      });
-    }
-
-    // Sort by outstanding amount (highest first)
-    pipeline.push({
-      $sort: { totalOutstanding: -1 }
+    const basePipeline = buildCustomerOutstandingPipeline({
+      search,
+      minAmount,
+      maxAmount,
+      status,
+      groupBy,
+      productFilters,
+      treatAsExactMatch,
     });
 
-    // Add search filter
-    if (search) {
-      if (groupBy === 'product') {
-        pipeline.unshift({
-          $match: {
-            $or: [
-              { customer: { $regex: search, $options: 'i' } },
-              { product: { $regex: search, $options: 'i' } }
-            ]
-          }
-        });
-      } else {
-        pipeline.unshift({
-          $match: {
-            customer: { $regex: search, $options: 'i' }
-          }
-        });
-      }
-    }
-
-    // Add amount range filters
-    if (minAmount || maxAmount) {
-      const amountFilter = {};
-      if (minAmount) amountFilter.$gte = parseFloat(minAmount);
-      if (maxAmount) amountFilter.$lte = parseFloat(maxAmount);
-      
-      pipeline.splice(1, 0, {
-        $match: {
-          outstandingAmount: amountFilter
-        }
-      });
-    }
-
-    // Add status filter
-    if (status) {
-      const statusFilter = {};
-      if (status === 'overdue') {
-        statusFilter.status = 'overdue';
-      } else if (status === 'partially_paid') {
-        statusFilter.status = 'partially_paid';
-      } else if (status === 'unpaid') {
-        statusFilter.status = 'unpaid';
-      }
-      
-      if (Object.keys(statusFilter).length > 0) {
-        pipeline.splice(1, 0, {
-          $match: statusFilter
-        });
-      }
-    }
-
     // Get total count for pagination
-    const totalPipeline = [...pipeline];
     const totalResult = await Sales.aggregate([
-      ...totalPipeline,
+      ...basePipeline,
       { $count: 'total' }
     ]);
     const total = totalResult.length > 0 ? totalResult[0].total : 0;
@@ -1548,20 +1588,46 @@ const getCustomerOutstanding = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    pipeline.push(
+    const pipeline = [
+      ...basePipeline,
       { $skip: skip },
       { $limit: limit }
-    );
+    ];
 
     const customerOutstanding = await Sales.aggregate(pipeline);
 
     // Calculate summary statistics
+    let totalCustomersSummary = groupBy === 'product' ? 0 : total;
+    let overdueCustomers = 0;
+    let partiallyPaidCustomers = 0;
+    let unpaidCustomers = 0;
+
+    if (groupBy === 'product') {
+      customerOutstanding.forEach((productGroup) => {
+        const customers = productGroup.customers || [];
+        totalCustomersSummary += customers.length;
+        customers.forEach((customer) => {
+          if (customer.status === 'overdue') {
+            overdueCustomers += 1;
+          } else if (customer.status === 'partially_paid') {
+            partiallyPaidCustomers += 1;
+          } else if (customer.status === 'unpaid') {
+            unpaidCustomers += 1;
+          }
+        });
+      });
+    } else {
+      overdueCustomers = customerOutstanding.filter((customer) => customer.status === 'overdue').length;
+      partiallyPaidCustomers = customerOutstanding.filter((customer) => customer.status === 'partially_paid').length;
+      unpaidCustomers = customerOutstanding.filter((customer) => customer.status === 'unpaid').length;
+    }
+
     const summary = {
       totalOutstanding: customerOutstanding.reduce((sum, customer) => sum + customer.totalOutstanding, 0),
-      totalCustomers: total,
-      overdueCustomers: customerOutstanding.filter(c => c.status === 'overdue').length,
-      partiallyPaidCustomers: customerOutstanding.filter(c => c.status === 'partially_paid').length,
-      unpaidCustomers: customerOutstanding.filter(c => c.status === 'unpaid').length,
+      totalCustomers: totalCustomersSummary,
+      overdueCustomers,
+      partiallyPaidCustomers,
+      unpaidCustomers,
     };
 
     res.json({
@@ -1590,103 +1656,29 @@ const getCustomerOutstanding = async (req, res) => {
 // @access  Private (Admin/Employee)
 const generateCustomerOutstandingPDF = async (req, res) => {
   try {
-    const { search = '', minAmount = '', maxAmount = '', status = '' } = req.query;
+    const { search = '', minAmount = '', maxAmount = '', status = '', groupBy = 'customer' } = req.query;
+    const rawProduct = req.query.product;
+    const rawProducts = req.query.products;
+    const productFilters = [...new Set([...toArray(rawProduct), ...toArray(rawProducts)])];
+    const treatAsExactMatch =
+      rawProducts !== undefined ||
+      Array.isArray(rawProduct) ||
+      (typeof rawProduct === 'string' && rawProduct.includes(','));
 
-    // Build aggregation pipeline (same as getCustomerOutstanding)
-    const pipeline = [
-      {
-        $match: {
-          outstandingAmount: { $gt: 0 }
-        }
-      },
-      {
-        $group: {
-          _id: '$customer',
-          customerName: { $first: '$customer' },
-          totalOutstanding: { $sum: '$outstandingAmount' },
-          totalAmount: { $sum: '$amount' },
-          totalReceived: { $sum: '$receivedAmount' },
-          invoiceCount: { $sum: 1 },
-          unpaidInvoices: {
-            $sum: { $cond: [{ $eq: ['$status', 'unpaid'] }, 1, 0] }
-          },
-          partiallyPaidInvoices: {
-            $sum: { $cond: [{ $eq: ['$status', 'partially_paid'] }, 1, 0] }
-          },
-          overdueInvoices: {
-            $sum: { $cond: [{ $eq: ['$status', 'overdue'] }, 1, 0] }
-          },
-          lastPaymentDate: { $max: '$lastPaymentDate' },
-          oldestDueDate: { $min: '$dueDate' }
-        }
-      },
-      {
-        $addFields: {
-          status: {
-            $cond: [
-              { $gt: ['$overdueInvoices', 0] },
-              'overdue',
-              {
-                $cond: [
-                  { $gt: ['$partiallyPaidInvoices', 0] },
-                  'partially_paid',
-                  'unpaid'
-                ]
-              }
-            ]
-          }
-        }
-      },
-      {
-        $sort: { totalOutstanding: -1 }
-      }
-    ];
-
-    // Add filters
-    if (search) {
-      pipeline.unshift({
-        $match: {
-          customer: { $regex: search, $options: 'i' }
-        }
-      });
-    }
-
-    if (minAmount || maxAmount) {
-      const amountFilter = {};
-      if (minAmount) amountFilter.$gte = parseFloat(minAmount);
-      if (maxAmount) amountFilter.$lte = parseFloat(maxAmount);
-      
-      pipeline.splice(1, 0, {
-        $match: {
-          outstandingAmount: amountFilter
-        }
-      });
-    }
-
-    if (status) {
-      const statusFilter = {};
-      if (status === 'overdue') {
-        statusFilter.overdueInvoices = { $gt: 0 };
-      } else if (status === 'partially_paid') {
-        statusFilter.partiallyPaidInvoices = { $gt: 0 };
-        statusFilter.overdueInvoices = 0;
-      } else if (status === 'unpaid') {
-        statusFilter.unpaidInvoices = { $gt: 0 };
-        statusFilter.partiallyPaidInvoices = 0;
-        statusFilter.overdueInvoices = 0;
-      }
-      
-      if (Object.keys(statusFilter).length > 0) {
-        pipeline.splice(1, 0, {
-          $match: statusFilter
-        });
-      }
-    }
+    const pipeline = buildCustomerOutstandingPipeline({
+      search,
+      minAmount,
+      maxAmount,
+      status,
+      groupBy,
+      productFilters,
+      treatAsExactMatch,
+    });
 
     const customerOutstanding = await Sales.aggregate(pipeline);
 
     const pdf = new PDFGenerator();
-    pdf.generateCustomerOutstandingReport(res, customerOutstanding);
+    pdf.generateCustomerOutstandingReport(res, customerOutstanding, { groupBy });
 
   } catch (error) {
     console.error('Generate customer outstanding PDF error:', error);

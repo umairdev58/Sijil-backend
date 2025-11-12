@@ -941,7 +941,9 @@ class PDFGenerator {
   }
 
   // Generate customer outstanding amounts report
-  generateCustomerOutstandingReport(res, customerOutstanding) {
+  generateCustomerOutstandingReport(res, outstandingData, options = {}) {
+    const { groupBy = 'customer' } = options;
+    const rows = Array.isArray(outstandingData) ? outstandingData : [];
     const doc = this.initDocument(res, `customer-outstanding-${new Date().toISOString().split('T')[0]}.pdf`);
     
     // Header
@@ -955,8 +957,22 @@ class PDFGenerator {
     this.doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, this.margin, 80, { align: 'center' });
     
     // Summary
-    const totalOutstanding = customerOutstanding.reduce((sum, customer) => sum + customer.totalOutstanding, 0);
-    const totalCustomers = customerOutstanding.length;
+    const totalOutstanding = rows.reduce((sum, entry) => {
+      if (groupBy === 'product') {
+        if (typeof entry.totalOutstanding === 'number') {
+          return sum + entry.totalOutstanding;
+        }
+        const customers = entry.customers || [];
+        return sum + customers.reduce((s, customer) => s + (customer.totalOutstanding || 0), 0);
+      }
+      return sum + (entry.totalOutstanding || 0);
+    }, 0);
+    
+    const totalCustomers = groupBy === 'product'
+      ? rows.reduce((sum, entry) => sum + ((entry.customers || []).length), 0)
+      : rows.length;
+    
+    const totalProducts = groupBy === 'product' ? rows.length : null;
     
     this.doc.fontSize(14).font('Helvetica-Bold');
     this.doc.fillColor('#2d3748');
@@ -964,72 +980,125 @@ class PDFGenerator {
     
     this.doc.fontSize(10).font('Helvetica');
     this.doc.fillColor('#4a5568');
-    this.doc.text(`Total Customers with Outstanding: ${totalCustomers}`, this.margin, 140);
-    this.doc.text(`Total Outstanding Amount: AED ${totalOutstanding.toLocaleString()}`, this.margin, 155);
-    
-    // Table header
-    this.currentY = 180;
-    this.doc.y = this.currentY;
+    if (groupBy === 'product') {
+      this.doc.text(`Total Products: ${totalProducts}`, this.margin, 140);
+      this.doc.text(`Total Customers with Outstanding: ${totalCustomers}`, this.margin, 155);
+      this.doc.text(`Total Outstanding Amount: AED ${totalOutstanding.toLocaleString()}`, this.margin, 170);
+    } else {
+      this.doc.text(`Total Customers with Outstanding: ${totalCustomers}`, this.margin, 140);
+      this.doc.text(`Total Outstanding Amount: AED ${totalOutstanding.toLocaleString()}`, this.margin, 155);
+    }
     
     const columnWidths = [250, 120, 120];
     const headers = ['Customer Name', 'Outstanding', 'Status'];
     
-    // Draw table header
-    this.doc.fontSize(12).font('Helvetica-Bold');
-    this.doc.fillColor('#2d3748');
-    this.doc.strokeColor('#e2e8f0');
-    this.doc.lineWidth(1);
-    
-    let x = this.margin;
-    headers.forEach((header, index) => {
-      this.doc.rect(x, this.currentY, columnWidths[index], 30).stroke();
-      this.doc.text(header, x + 5, this.currentY + 10, { width: columnWidths[index] - 10 });
-      x += columnWidths[index];
-    });
-    
-    this.currentY += 30;
-    
-    // Draw table rows
-    customerOutstanding.forEach((customer, index) => {
-      // Check if we need a new page
-      if (this.currentY > this.pageHeight - 100) {
-        this.doc.addPage();
-        this.currentY = 50;
-        this.doc.y = this.currentY;
-      }
-      
-      const y = this.currentY;
-      
-      // Alternate row colors
-      this.doc.fillColor(index % 2 === 0 ? '#f7fafc' : 'white');
-      this.doc.rect(this.margin, y, columnWidths.reduce((a, b) => a + b, 0), 25).fill();
-      this.doc.fillColor('black');
+    const drawTableHeader = () => {
+      this.doc.fontSize(12).font('Helvetica-Bold');
+      this.doc.fillColor('#2d3748');
+      this.doc.strokeColor('#e2e8f0');
+      this.doc.lineWidth(1);
       
       let x = this.margin;
-      this.doc.fontSize(11).font('Helvetica');
+      headers.forEach((header, index) => {
+        this.doc.rect(x, this.currentY, columnWidths[index], 30).stroke();
+        this.doc.text(header, x + 5, this.currentY + 10, { width: columnWidths[index] - 10 });
+        x += columnWidths[index];
+      });
       
-      // Customer Name
-      this.doc.font('Helvetica-Bold');
-      this.doc.text(customer.customerName, x + 5, y + 8, { width: columnWidths[0] - 10, ellipsis: true });
-      x += columnWidths[0];
-      
-      // Outstanding Amount
-      this.doc.font('Helvetica-Bold');
-      this.doc.fillColor('#e53e3e');
-      this.doc.text(`AED ${customer.totalOutstanding.toLocaleString()}`, x + 5, y + 8, { width: columnWidths[1] - 10, align: 'right' });
-      this.doc.fillColor('black');
-      x += columnWidths[1];
-      
-      // Status
-      this.doc.font('Helvetica-Bold');
-      const statusColor = customer.status === 'overdue' ? '#e53e3e' : 
-                         customer.status === 'partially_paid' ? '#d69e2e' : '#3182ce';
-      this.doc.fillColor(statusColor);
-      this.doc.text(customer.status.replace('_', ' ').toUpperCase(), x + 5, y + 8, { width: columnWidths[2] - 10, align: 'center' });
-      this.doc.fillColor('black');
-      
-      this.currentY += 25;
-    });
+      this.currentY += 30;
+    };
+    
+    const drawCustomerRows = (customers) => {
+      let rowIndex = 0;
+      customers.forEach((customer) => {
+        if (this.currentY > this.pageHeight - 100) {
+          this.doc.addPage();
+          this.currentY = 50;
+          this.doc.y = this.currentY;
+          drawTableHeader();
+          rowIndex = 0;
+        }
+        
+        const y = this.currentY;
+        const isEvenRow = rowIndex % 2 === 0;
+        
+        this.doc.fillColor(isEvenRow ? '#f7fafc' : 'white');
+        this.doc.rect(this.margin, y, columnWidths.reduce((a, b) => a + b, 0), 25).fill();
+        this.doc.fillColor('black');
+        
+        let x = this.margin;
+        this.doc.fontSize(11).font('Helvetica');
+        
+        // Customer Name
+        this.doc.font('Helvetica-Bold');
+        this.doc.text(customer.customerName || '-', x + 5, y + 8, { width: columnWidths[0] - 10, ellipsis: true });
+        x += columnWidths[0];
+        
+        // Outstanding Amount
+        this.doc.font('Helvetica-Bold');
+        this.doc.fillColor('#e53e3e');
+        const outstandingAmount = Number(customer.totalOutstanding || 0);
+        this.doc.text(`AED ${outstandingAmount.toLocaleString()}`, x + 5, y + 8, { width: columnWidths[1] - 10, align: 'right' });
+        this.doc.fillColor('black');
+        x += columnWidths[1];
+        
+        // Status
+        this.doc.font('Helvetica-Bold');
+        const status = (customer.status || 'unpaid').toString();
+        const statusColor = status === 'overdue' ? '#e53e3e'
+          : status === 'partially_paid' ? '#d69e2e'
+          : '#3182ce';
+        this.doc.fillColor(statusColor);
+        this.doc.text(status.replace('_', ' ').toUpperCase(), x + 5, y + 8, { width: columnWidths[2] - 10, align: 'center' });
+        this.doc.fillColor('black');
+        
+        this.currentY += 25;
+        rowIndex += 1;
+      });
+    };
+    
+    this.currentY = groupBy === 'product' ? 190 : 180;
+    this.doc.y = this.currentY;
+    
+    if (groupBy === 'product') {
+      rows.forEach((productGroup) => {
+        if (this.currentY > this.pageHeight - 160) {
+          this.doc.addPage();
+          this.currentY = 60;
+          this.doc.y = this.currentY;
+        }
+        
+        const productName = productGroup.productName || 'Unnamed Product';
+        const productOutstanding = Number(productGroup.totalOutstanding || 0).toLocaleString();
+        const productCustomers = productGroup.customers ? productGroup.customers.length : 0;
+        const productInvoices = productGroup.totalInvoices || 0;
+        
+        this.doc.fontSize(13).font('Helvetica-Bold');
+        this.doc.fillColor('#1e293b');
+        this.doc.text(productName, this.margin, this.currentY, { width: this.contentWidth });
+        
+        this.doc.fontSize(10).font('Helvetica');
+        this.doc.fillColor('#475569');
+        this.doc.text(
+          `Outstanding: AED ${productOutstanding}   •   Customers: ${productCustomers}   •   Invoices: ${productInvoices}`,
+          this.margin,
+          this.currentY + 18,
+          { width: this.contentWidth }
+        );
+        
+        this.currentY += 40;
+        this.doc.y = this.currentY;
+        
+        drawTableHeader();
+        drawCustomerRows(productGroup.customers || []);
+        
+        this.currentY += 20;
+        this.doc.y = this.currentY;
+      });
+    } else {
+      drawTableHeader();
+      drawCustomerRows(rows);
+    }
     
     // Footer
     this.doc.fontSize(10).font('Helvetica');
