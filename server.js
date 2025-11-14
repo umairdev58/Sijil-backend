@@ -2,7 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
+// const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const authRoutes = require('./routes/auth');
@@ -21,7 +21,7 @@ const { initializeAdmin } = require('./utils/adminInitializer');
 const { formatNumbersDeep } = require('./utils/numberFormatter');
 
 const app = express();
-
+app.set('trust proxy', 1);
 // Security middleware - configure Helmet to allow CORS
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
@@ -73,15 +73,15 @@ app.use((req, res, next) => {
   next();
 });
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'production' ? 100 : 1000, // Higher limit for development
-  message: 'Too many requests from this IP, please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use(limiter);
+// Rate limiting (disabled for now)
+// const limiter = rateLimit({
+//   windowMs: 15 * 60 * 1000, // 15 minutes
+//   max: process.env.NODE_ENV === 'production' ? 1000 : 1000,
+//   message: 'Too many requests from this IP, please try again later.',
+//   standardHeaders: true,
+//   legacyHeaders: false,
+// });
+// app.use(limiter);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
