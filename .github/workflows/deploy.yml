@@ -38,8 +38,8 @@ jobs:
             set -e
             
             # Default values
-            APP_DIR="${APP_DIR:-/opt/sijil/app}"
-            BACKEND_DIR="${APP_DIR}/backend"
+            # APP_DIR="${APP_DIR:-/opt/sijil/app}"
+            BACKEND_DIR="${APP_DIR}"
             GIT_BRANCH="${GIT_BRANCH:-main}"
             
             echo "🚀 Starting deployment..."
