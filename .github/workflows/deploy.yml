@@ -41,6 +41,7 @@ jobs:
             APP_DIR="/home/ubuntu/Sijil-backend"
             BACKEND_DIR="${APP_DIR}"
             GIT_BRANCH="${GIT_BRANCH:-main}"
+            PM2_NAME="Sijil-backend"
             
             echo "🚀 Starting deployment..."
             echo "📁 App directory: ${APP_DIR}"
@@ -64,14 +65,14 @@ jobs:
             
             # Restart PM2 process
             echo "🔄 Restarting application..."
-            pm2 restart Sijil-backend --update-env || pm2 start server.js --name sijil-backend --update-env
+            pm2 restart "${PM2_NAME}" --update-env || pm2 start server.js --name "${PM2_NAME}" --update-env
             
             # Save PM2 process list
             pm2 save
             
             # Show status
             echo "✅ Deployment complete!"
-            pm2 status
+            pm2 status "${PM2_NAME}"
           ENDSSH
 
       - name: Verify deployment
@@ -82,7 +83,8 @@ jobs:
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
             echo "🔍 Verifying deployment..."
             sleep 5
-            pm2 status sijil-backend
-            pm2 logs sijil-backend --lines 20 --nostream
+            PM2_NAME="Sijil-backend"
+            pm2 status "${PM2_NAME}"
+            pm2 logs "${PM2_NAME}" --lines 20 --nostream
           ENDSSH
 
