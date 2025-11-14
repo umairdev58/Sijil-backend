@@ -38,7 +38,7 @@ jobs:
             set -e
             
             # Default values
-            # APP_DIR="${APP_DIR:-/opt/sijil/app}"
+            APP_DIR="/home/ubuntu/Sijil-backend"
             BACKEND_DIR="${APP_DIR}"
             GIT_BRANCH="${GIT_BRANCH:-main}"
             
