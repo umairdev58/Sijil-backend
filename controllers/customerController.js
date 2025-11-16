@@ -34,7 +34,7 @@ const createCustomer = async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Customer created successfully',
-      customer: newCustomer
+      data: newCustomer
     });
 
   } catch (error) {
@@ -90,7 +90,7 @@ const getCustomers = async (req, res) => {
 
     res.json({
       success: true,
-      data:customers,
+      data: customers,
       pagination: {
         currentPage: parseInt(page),
         totalPages: Math.ceil(total / limit),
@@ -135,7 +135,7 @@ const getCustomerById = async (req, res) => {
 
     res.json({
       success: true,
-      customer
+      data: customer
     });
 
   } catch (error) {
@@ -202,7 +202,7 @@ const updateCustomer = async (req, res) => {
     res.json({
       success: true,
       message: 'Customer updated successfully',
-      customer
+      data: customer
     });
 
   } catch (error) {
@@ -310,7 +310,7 @@ const searchCustomersByName = async (req, res) => {
 
     res.json({
       success: true,
-      customers,
+      data: customers,
       searchTerm: name
     });
 
