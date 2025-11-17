@@ -336,6 +336,7 @@ const getSales = async (req, res) => {
       search = '',
       customer = '',
       supplier = '',
+      containerNo = '',
       product = '',
       status = '',
       statuses = '', // Multiple statuses separated by comma
@@ -374,6 +375,10 @@ const getSales = async (req, res) => {
 
     if (supplier) {
       query.supplier = { $regex: supplier, $options: 'i' };
+    }
+
+    if (containerNo) {
+      query.containerNo = { $regex: containerNo, $options: 'i' };
     }
 
     if (product) {
