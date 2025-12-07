@@ -1168,13 +1168,13 @@ class PDFGenerator {
       const ex = map.get(key);
       if (ex) {
         ex.quantity += p.quantity || 0;
-        ex.amountWithoutVAT += p.amountWithoutVAT || 0;
+        ex.amount += p.amount || 0;
       } else {
         map.set(key, {
           product: p.product,
           unitPrice: Number(p.unitPrice) || 0,
           quantity: Number(p.quantity) || 0,
-          amountWithoutVAT: Number(p.amountWithoutVAT) || 0,
+          amount: Number(p.amount) || 0,
         });
       }
     });
@@ -1185,7 +1185,7 @@ class PDFGenerator {
     const tileHeight = 52;
     const startX = this.margin;
     const startY = this.currentY;
-    const gross = rows.reduce((s,r)=>s + r.amountWithoutVAT, 0);
+    const gross = rows.reduce((s,r)=>s + r.amount, 0);
     const expensesTotal = (statement.expenses || []).reduce((s,e)=> s + (e.amount || 0), 0);
     const net = gross - expensesTotal;
 
@@ -1239,7 +1239,7 @@ class PDFGenerator {
       this.doc.font('Helvetica-Bold').text(r.product, x + 5, y + 8, { width: columnWidths[1]-10 }); x += columnWidths[1];
       this.doc.font('Helvetica').text(r.quantity.toLocaleString(), x + 5, y + 8, { width: columnWidths[2]-10, align: 'right' }); x += columnWidths[2];
       this.doc.text(r.unitPrice.toFixed(2), x + 5, y + 8, { width: columnWidths[3]-10, align: 'right' }); x += columnWidths[3];
-      this.doc.font('Helvetica-Bold').text(r.amountWithoutVAT.toLocaleString(), x + 5, y + 8, { width: columnWidths[4]-10, align: 'right' });
+      this.doc.font('Helvetica-Bold').text(r.amount.toLocaleString(), x + 5, y + 8, { width: columnWidths[4]-10, align: 'right' });
       this.currentY += 25;
     });
 

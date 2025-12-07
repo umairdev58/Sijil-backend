@@ -29,9 +29,9 @@ const containerStatementSchema = new mongoose.Schema({
       required: [true, 'Unit price is required'],
       min: [0, 'Unit price cannot be negative']
     },
-    amountWithoutVAT: {
+    amount: {
       type: Number,
-      required: [true, 'Amount without VAT is required'],
+      required: [true, 'Amount is required'],
       min: [0, 'Amount cannot be negative']
     }
   }],
@@ -97,7 +97,7 @@ containerStatementSchema.pre('save', function(next) {
   this.totalQuantity = this.products.reduce((sum, product) => sum + product.quantity, 0);
   
   // Calculate gross sale
-  this.grossSale = this.products.reduce((sum, product) => sum + product.amountWithoutVAT, 0);
+  this.grossSale = this.products.reduce((sum, product) => sum + product.amount, 0);
   
   // Calculate total expenses
   this.totalExpenses = this.expenses.reduce((sum, expense) => sum + expense.amount, 0);
