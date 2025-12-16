@@ -55,8 +55,13 @@ const getCustomers = async (req, res) => {
       page = 1,
       limit = 10,
       search = '',
-      isActive = ''
+      isActive = '',
+      all = 'false'
     } = req.query;
+
+    const pageNumber = Math.max(parseInt(page, 10) || 1, 1);
+    const limitNumber = Math.max(parseInt(limit, 10) || 10, 1);
+    const fetchAll = all === 'true';
 
     // Build query
     const query = {};
@@ -75,10 +80,11 @@ const getCustomers = async (req, res) => {
     }
 
     // Execute query with pagination
-    const customers = await Customer.find(query)
-      .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
+    const customerQuery = Customer.find(query).sort({ createdAt: -1 });
+    if (!fetchAll) {
+      customerQuery.limit(limitNumber).skip((pageNumber - 1) * limitNumber);
+    }
+    const customers = await customerQuery
       .populate('createdBy', 'name email')
       .populate('updatedBy', 'name email');
 
@@ -88,14 +94,20 @@ const getCustomers = async (req, res) => {
     // Get statistics
     const stats = await Customer.getStatistics();
 
+    const currentPage = fetchAll ? 1 : pageNumber;
+    const customersPerPage = fetchAll ? total : limitNumber;
+    const totalPages = fetchAll
+      ? 1
+      : Math.max(Math.ceil(total / limitNumber), 1);
+
     res.json({
       success: true,
       data: customers,
       pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(total / limit),
+        currentPage,
+        totalPages,
         totalCustomers: total,
-        customersPerPage: parseInt(limit)
+        customersPerPage
       },
       statistics: stats
     });
