@@ -65,6 +65,12 @@ class PDFGenerator {
       this.doc.text(sale.referenceNo, rightX, 104); // Ref. No. if any
     }
 
+    // Sale marka (left/top area) positioned above customer name
+    if (sale.marka) {
+      this.doc.fontSize(7).font('Helvetica-Bold');
+      this.doc.text(sale.marka, 10, 40, { width: 260 });
+    }
+
     // Customer name (left area)
     this.doc.fontSize(11).font('Helvetica-Bold');
     this.doc.text(sale.customer || '', 70, 75, { width: 260, continued: false });
