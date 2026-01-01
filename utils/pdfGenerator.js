@@ -106,7 +106,7 @@ class PDFGenerator {
     const descX = 120; const descW = Math.max(100, qtyX - descX - 10);
 
     // Description (left aligned)
-    const description = [sale.product, sale.marka].filter(Boolean).join(' - ');
+    const description = [sale.product, sale.description].filter(Boolean).join(' - ');
     this.doc.text(description, descX, rowY, { width: descW });
     // Qty (right aligned)
     this.doc.text(String(sale.quantity || 0), qtyX, rowY, { width: qtyW, align: 'right' });
@@ -1406,7 +1406,6 @@ class PDFGenerator {
     this.addFooter();
     doc.end();
   }
-  
 
   // Generate freight report PDF
   generateFreightReport(res, data) {
