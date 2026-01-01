@@ -1206,16 +1206,21 @@ class PDFGenerator {
       const unitPrice = Number(p.unitPrice) || 0;
       const quantity = Number(p.quantity) || 0;
       const amount = Number(p.amount) || 0;
+      const description = this.sanitizeField(p.description);
   
       const key = `${p.product}__${unitPrice.toFixed(2)}`;
-  
+
       const existing = map.get(key);
       if (existing) {
         existing.quantity += quantity;
         existing.amount += amount;
+        if (!existing.description && description) {
+          existing.description = description;
+        }
       } else {
         map.set(key, {
           product: p.product || '',
+          description,
           unitPrice,
           quantity,
           amount,
@@ -1272,9 +1277,9 @@ class PDFGenerator {
     this.doc.text('Product Details', this.margin, this.currentY);
     this.currentY += 20;
   
-    const headers = ['SR #', 'PRODUCT', 'QTY', 'UNIT PRICE', 'AMOUNT (AED)'];
-    const columnWidths = [45, 200, 70, 90, 120];
-    const rowHeight = 25;
+    const headers = ['SR #', 'PRODUCT', 'DESCRIPTION', 'QTY', 'UNIT PRICE', 'AMOUNT (AED)'];
+    const columnWidths = [40, 120, 150, 60, 70, 75];
+    const rowHeight = 35;
     const bottomBuffer = 120;
   
     this.drawTableHeader(headers, columnWidths, this.currentY);
@@ -1311,12 +1316,18 @@ class PDFGenerator {
         width: columnWidths[1] - 10,
       });
       x += columnWidths[1];
-  
-      this.doc.font('Helvetica').text(r.quantity.toLocaleString(), x + 5, y + 8, {
+
+      this.doc.font('Helvetica').text(r.description || '-', x + 5, y + 8, {
         width: columnWidths[2] - 10,
-        align: 'right',
+        align: 'left',
       });
       x += columnWidths[2];
+
+      this.doc.font('Helvetica').text(r.quantity.toLocaleString(), x + 5, y + 8, {
+        width: columnWidths[3] - 10,
+        align: 'right',
+      });
+      x += columnWidths[3];
   
       this.doc.text(r.unitPrice.toFixed(2), x + 5, y + 8, {
         width: columnWidths[3] - 10,

@@ -19,6 +19,12 @@ const containerStatementSchema = new mongoose.Schema({
       trim: true,
       maxlength: [100, 'Product name cannot be more than 100 characters']
     },
+    description: {
+      type: String,
+      trim: true,
+      maxlength: [500, 'Description cannot be more than 500 characters'],
+      default: ''
+    },
     quantity: {
       type: Number,
       required: [true, 'Quantity is required'],

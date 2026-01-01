@@ -12,6 +12,7 @@ const buildStatementDataFromSales = (salesData = []) => {
     return {
       srNo: index + 1,
       product: sale.product,
+      description: sale.description || '',
       quantity,
       unitPrice,
       amount: totalAmount,
