@@ -5,10 +5,12 @@ const {
   createContainerStatement,
   updateContainerStatement,
   addExpense,
+  updateExpense,
   removeExpense,
   getAllContainerStatements,
   deleteContainerStatement,
-  downloadStatementPDF
+  downloadStatementPDF,
+  generatePDFFromPayload
 } = require('../controllers/containerStatementController');
 const { protect, authorize } = require('../middleware/auth');
 
@@ -16,6 +18,11 @@ const { protect, authorize } = require('../middleware/auth');
 router.use(protect);
 
 // IMPORTANT: Define specific routes before parameterized ones to avoid conflicts
+
+// @route   POST /api/container-statements/generate-pdf
+// @desc    Generate PDF from statement data payload
+// @access  Private
+router.post('/generate-pdf', generatePDFFromPayload);
 
 // @route   GET /api/container-statements/:containerNo/pdf
 // @desc    Download container statement as PDF
@@ -41,6 +48,11 @@ router.post('/', createContainerStatement);
 // @desc    Update container statement
 // @access  Private
 router.put('/:id', updateContainerStatement);
+
+// @route   PUT /api/container-statements/:id/expenses/:expenseId
+// @desc    Update expense on container statement
+// @access  Private
+router.put('/:id/expenses/:expenseId', updateExpense);
 
 // @route   POST /api/container-statements/:id/expenses
 // @desc    Add expense to container statement
