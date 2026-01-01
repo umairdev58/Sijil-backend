@@ -1282,7 +1282,7 @@ class PDFGenerator {
     const rowHeight = 35;
     const bottomBuffer = 120;
   
-    this.drawTableHeader(headers, columnWidths, this.currentY);
+    this.drawTableHeader(headers, columnWidths, this.currentY, ['left', 'left', 'left', 'right', 'right', 'right']);
     this.currentY += 35;
   
     const ensureSpace = () => {
@@ -1355,7 +1355,7 @@ class PDFGenerator {
       const eHeaders = ['DESCRIPTION', 'AMOUNT (AED)'];
       const eWidths = [350, 175];
   
-      this.drawTableHeader(eHeaders, eWidths, this.currentY);
+      this.drawTableHeader(eHeaders, eWidths, this.currentY, ['left', 'right']);
       this.currentY += 35;
   
       statement.expenses.forEach((e, i) => {
