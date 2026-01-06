@@ -1208,15 +1208,13 @@ class PDFGenerator {
       const amount = Number(p.amount) || 0;
       const description = this.sanitizeField(p.description);
   
-      const key = `${p.product}__${unitPrice.toFixed(2)}`;
+      // Include description in the key so products only merge if product, unitPrice, AND description match
+      const key = `${p.product}__${unitPrice.toFixed(2)}__${description || ''}`;
 
       const existing = map.get(key);
       if (existing) {
         existing.quantity += quantity;
         existing.amount += amount;
-        if (!existing.description && description) {
-          existing.description = description;
-        }
       } else {
         map.set(key, {
           product: p.product || '',
