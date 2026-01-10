@@ -3,6 +3,8 @@ const Payment = require('../models/Payment');
 const Counter = require('../models/Counter');
 const PDFGenerator = require('../utils/pdfGenerator');
 const Customer = require('../models/Customer');
+const Product = require('../models/Product');
+const Category = require('../models/Category');
 const { createSalesPaymentEntry } = require('./dailyLedgerController');
 
 const escapeRegex = (text = '') => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -42,6 +44,8 @@ const buildCustomerOutstandingPipeline = ({
   productFilters = [],
   hasPotato = false,
   treatAsExactMatch = false,
+  categoryFilters = [],
+  categoryProductNames = [],
 }) => {
   const pipeline = [
     {
@@ -97,7 +101,133 @@ const buildCustomerOutstandingPipeline = ({
     });
   }
 
-  if (groupBy === 'product') {
+  // If grouping by category, filter sales by products that belong to selected categories
+  if (groupBy === 'category') {
+    if (categoryProductNames.length > 0) {
+      // Filter sales to only include products from the selected categories
+      pipeline.push({
+        $match: {
+          product: {
+            $in: categoryProductNames
+          }
+        }
+      });
+    }
+    
+    // Add category field using lookup
+    pipeline.push({
+      $lookup: {
+        from: 'products',
+        let: { productName: '$product' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $eq: [
+                  { $toLower: { $trim: { input: '$name' } } },
+                  { $toLower: { $trim: { input: '$$productName' } } }
+                ]
+              },
+              isActive: true
+            }
+          },
+          {
+            $lookup: {
+              from: 'categories',
+              localField: 'category',
+              foreignField: '_id',
+              as: 'categoryInfo'
+            }
+          },
+          {
+            $unwind: {
+              path: '$categoryInfo',
+              preserveNullAndEmptyArrays: true
+            }
+          },
+          {
+            $project: {
+              categoryName: '$categoryInfo.name',
+              categoryId: '$categoryInfo._id'
+            }
+          }
+        ],
+        as: 'productInfo'
+      }
+    });
+    
+    pipeline.push({
+      $unwind: {
+        path: '$productInfo',
+        preserveNullAndEmptyArrays: true
+      }
+    });
+    
+    pipeline.push({
+      $addFields: {
+        categoryName: {
+          $ifNull: ['$productInfo.categoryName', 'Uncategorized']
+        },
+        categoryId: '$productInfo.categoryId'
+      }
+    });
+  }
+
+  if (groupBy === 'category') {
+    // Group by category (categoryName was added in the previous step)
+    pipeline.push(
+      {
+        $group: {
+          _id: {
+            category: '$categoryName',
+            customer: '$customer'
+          },
+          categoryName: { $first: '$categoryName' },
+          customerName: { $first: '$customer' },
+          totalOutstanding: { $sum: '$outstandingAmount' },
+          totalAmount: { $sum: '$amount' },
+          totalReceived: { $sum: '$receivedAmount' },
+          invoiceCount: { $sum: 1 },
+          unpaidInvoices: {
+            $sum: { $cond: [{ $eq: ['$status', 'unpaid'] }, 1, 0] }
+          },
+          partiallyPaidInvoices: {
+            $sum: { $cond: [{ $eq: ['$status', 'partially_paid'] }, 1, 0] }
+          },
+          overdueInvoices: {
+            $sum: { $cond: [{ $eq: ['$status', 'overdue'] }, 1, 0] }
+          },
+          lastPaymentDate: { $max: '$lastPaymentDate' },
+          oldestDueDate: { $min: '$dueDate' }
+        }
+      },
+      {
+        $group: {
+          _id: '$categoryName',
+          categoryName: { $first: '$categoryName' },
+          customers: {
+            $push: {
+              customerName: '$customerName',
+              totalOutstanding: '$totalOutstanding',
+              totalAmount: '$totalAmount',
+              totalReceived: '$totalReceived',
+              invoiceCount: '$invoiceCount',
+              unpaidInvoices: '$unpaidInvoices',
+              partiallyPaidInvoices: '$partiallyPaidInvoices',
+              overdueInvoices: '$overdueInvoices',
+              lastPaymentDate: '$lastPaymentDate',
+              oldestDueDate: '$oldestDueDate'
+            }
+          },
+          totalOutstanding: { $sum: '$totalOutstanding' },
+          totalAmount: { $sum: '$totalAmount' },
+          totalReceived: { $sum: '$totalReceived' },
+          totalInvoices: { $sum: '$invoiceCount' },
+          totalCustomers: { $sum: 1 }
+        }
+      }
+    );
+  } else if (groupBy === 'product') {
     const shouldCombinePotato = hasPotato;
     
     if (shouldCombinePotato) {
@@ -208,7 +338,7 @@ const buildCustomerOutstandingPipeline = ({
     });
   }
 
-  if (groupBy === 'product') {
+  if (groupBy === 'product' || groupBy === 'category') {
     pipeline.push({
       $addFields: {
         customers: {
@@ -264,7 +394,7 @@ const buildCustomerOutstandingPipeline = ({
   });
 
   if (search) {
-    if (groupBy === 'product') {
+    if (groupBy === 'product' || groupBy === 'category') {
       pipeline.unshift({
         $match: {
           $or: [
@@ -1644,7 +1774,47 @@ const getCustomerOutstanding = async (req, res) => {
     const { search = '', minAmount = '', maxAmount = '', status = '', groupBy = 'customer' } = req.query;
     const rawProduct = req.query.product;
     const rawProducts = req.query.products;
+    const rawCategory = req.query.category;
+    const rawCategories = req.query.categories;
     const { productFilters, hasPotato, treatAsExactMatch } = prepareProductFilters(rawProduct, rawProducts);
+    
+    // Parse category filters
+    let categoryFilters = [];
+    if (rawCategory) {
+      categoryFilters = [rawCategory];
+    } else if (rawCategories) {
+      categoryFilters = Array.isArray(rawCategories) ? rawCategories : [rawCategories];
+    }
+
+    // If grouping by category, fetch products by category first
+    let categoryProductNames = []; // Array of product names to filter sales
+    
+    if (groupBy === 'category') {
+      const mongoose = require('mongoose');
+      
+      // Build query for products
+      const productQuery = { isActive: true };
+      if (categoryFilters.length > 0) {
+        const categoryObjectIds = categoryFilters.map(id => {
+          try {
+            return mongoose.Types.ObjectId(id);
+          } catch {
+            return id;
+          }
+        });
+        productQuery.category = { $in: categoryObjectIds };
+      }
+      
+      // Fetch products with their categories
+      const products = await Product.find(productQuery).populate('category', 'name');
+      
+      // Get list of product names (exact names as stored in Products collection)
+      categoryProductNames = products.map(product => product.name);
+      
+      // Note: We'll use $lookup in the pipeline to match products case-insensitively
+      // and get their categories. If a product in Sales doesn't match any Product,
+      // it will be categorized as "Uncategorized"
+    }
 
     const basePipeline = buildCustomerOutstandingPipeline({
       search,
@@ -1655,6 +1825,8 @@ const getCustomerOutstanding = async (req, res) => {
       productFilters,
       hasPotato,
       treatAsExactMatch,
+      categoryFilters,
+      categoryProductNames, // Pass product names to filter sales
     });
 
     const totalPipeline = [...basePipeline, { $count: 'total' }];
@@ -1669,12 +1841,12 @@ const getCustomerOutstanding = async (req, res) => {
 
     const customerOutstanding = await Sales.aggregate(pipeline);
 
-    let totalCustomersSummary = groupBy === 'product' ? 0 : total;
+    let totalCustomersSummary = (groupBy === 'product' || groupBy === 'category') ? 0 : total;
     let overdueCustomers = 0;
     let partiallyPaidCustomers = 0;
     let unpaidCustomers = 0;
 
-    if (groupBy === 'product') {
+    if (groupBy === 'product' || groupBy === 'category') {
       customerOutstanding.forEach((productGroup) => {
         const customers = productGroup.customers || [];
         totalCustomersSummary += customers.length;
@@ -1731,7 +1903,39 @@ const generateCustomerOutstandingPDF = async (req, res) => {
     const { search = '', minAmount = '', maxAmount = '', status = '', groupBy = 'customer' } = req.query;
     const rawProduct = req.query.product;
     const rawProducts = req.query.products;
+    const rawCategory = req.query.category;
+    const rawCategories = req.query.categories;
     const { productFilters, hasPotato, treatAsExactMatch } = prepareProductFilters(rawProduct, rawProducts);
+    
+    // Parse category filters
+    let categoryFilters = [];
+    if (rawCategory) {
+      categoryFilters = [rawCategory];
+    } else if (rawCategories) {
+      categoryFilters = Array.isArray(rawCategories) ? rawCategories : [rawCategories];
+    }
+
+    // If grouping by category, fetch products by category first
+    let categoryProductNames = [];
+    
+    if (groupBy === 'category') {
+      const mongoose = require('mongoose');
+      
+      const productQuery = { isActive: true };
+      if (categoryFilters.length > 0) {
+        const categoryObjectIds = categoryFilters.map(id => {
+          try {
+            return mongoose.Types.ObjectId(id);
+          } catch {
+            return id;
+          }
+        });
+        productQuery.category = { $in: categoryObjectIds };
+      }
+      
+      const products = await Product.find(productQuery).populate('category', 'name');
+      categoryProductNames = products.map(product => product.name);
+    }
 
     const pipeline = buildCustomerOutstandingPipeline({
       search,
@@ -1742,6 +1946,8 @@ const generateCustomerOutstandingPDF = async (req, res) => {
       productFilters,
       hasPotato,
       treatAsExactMatch,
+      categoryFilters,
+      categoryProductNames,
     });
 
     const customerOutstanding = await Sales.aggregate(pipeline);
