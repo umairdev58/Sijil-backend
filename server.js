@@ -17,6 +17,8 @@ const transportRoutes = require('./routes/transport');
 const dubaiTransportRoutes = require('./routes/dubaiTransport');
 const dubaiClearanceRoutes = require('./routes/dubaiClearance');
 const containerStatementRoutes = require('./routes/containerStatements');
+const categoryRoutes = require('./routes/categories');
+const productRoutes = require('./routes/products');
 const { initializeAdmin } = require('./utils/adminInitializer');
 const { formatNumbersDeep } = require('./utils/numberFormatter');
 
@@ -164,6 +166,8 @@ app.use('/api/transport-invoices', transportRoutes);
 app.use('/api/dubai-transport-invoices', dubaiTransportRoutes);
 app.use('/api/dubai-clearance-invoices', dubaiClearanceRoutes);
 app.use('/api/container-statements', containerStatementRoutes);
+app.use('/api/categories', categoryRoutes);
+app.use('/api/products', productRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
