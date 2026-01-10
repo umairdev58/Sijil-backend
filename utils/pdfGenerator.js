@@ -1276,7 +1276,7 @@ class PDFGenerator {
     this.currentY += 20;
   
     const headers = ['SR #', 'PRODUCT', 'DESCRIPTION', 'QTY', 'UNIT PRICE', 'AMOUNT (AED)'];
-    const columnWidths = [40, 120, 150, 60, 70, 75];
+    const columnWidths = [55, 115, 150, 60, 70, 75];
     const rowHeight = 35;
     const bottomBuffer = 120;
   
@@ -1340,6 +1340,56 @@ class PDFGenerator {
   
       this.currentY += rowHeight;
     });
+  
+    // =================================================
+    // TOTALS ROW
+    // =================================================
+    ensureSpace();
+    
+    const totalQuantity = rows.reduce((sum, r) => sum + r.quantity, 0);
+    const totalAmount = rows.reduce((sum, r) => sum + r.amount, 0);
+    
+    const y = this.currentY;
+    let x = this.margin;
+    
+    // Draw totals row with different background
+    this.doc.fillColor('#e5e7eb');
+    this.doc
+      .rect(this.margin, y, columnWidths.reduce((a, b) => a + b, 0), rowHeight)
+      .fill();
+    
+    this.doc.fillColor('#111827').fontSize(10).font('Helvetica-Bold');
+    
+    // SR # column - "TOTAL"
+    this.doc.text('TOTAL', x + 5, y + 8, {
+      width: columnWidths[0] - 10,
+    });
+    x += columnWidths[0];
+    
+    // PRODUCT column - empty
+    x += columnWidths[1];
+    
+    // DESCRIPTION column - empty
+    x += columnWidths[2];
+    
+    // QTY column - total quantity
+    this.doc.text(totalQuantity.toLocaleString(), x + 5, y + 8, {
+      width: columnWidths[3] - 10,
+      align: 'right',
+    });
+    x += columnWidths[3];
+    
+    // UNIT PRICE column - empty (skip, but account for width)
+    // Match the existing code pattern (even though it uses columnWidths[3] instead of [4])
+    x += columnWidths[3];
+    
+    // AMOUNT column - total amount
+    this.doc.text(totalAmount.toLocaleString(), x + 5, y + 8, {
+      width: columnWidths[4] - 10,
+      align: 'right',
+    });
+    
+    this.currentY += rowHeight;
   
     // =================================================
     // EXPENSES TABLE
