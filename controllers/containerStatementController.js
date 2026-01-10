@@ -6,8 +6,15 @@ const { ceilToTwoDecimals } = require('../utils/numberFormatter');
 const buildStatementDataFromSales = (salesData = []) => {
   const products = salesData.map((sale, index) => {
     const quantity = Number(sale.quantity) || 0;
-    const totalAmount = ceilToTwoDecimals(sale.amount || 0);
-    const unitPrice = quantity > 0 ? ceilToTwoDecimals(totalAmount / quantity) : ceilToTwoDecimals(sale.rate || 0);
+    const rate = Number(sale.rate) || 0;
+    const vatPercentage = Number(sale.vatPercentage) || 0;
+    
+    // Calculate amount WITHOUT discount for statement
+    // Statement should show the full amount before any discounts are applied
+    const subtotal = ceilToTwoDecimals(quantity * rate);
+    const vatAmount = ceilToTwoDecimals((subtotal * vatPercentage) / 100);
+    const totalAmount = ceilToTwoDecimals(subtotal + vatAmount);
+    const unitPrice = quantity > 0 ? ceilToTwoDecimals(totalAmount / quantity) : ceilToTwoDecimals(rate);
 
     return {
       srNo: index + 1,
