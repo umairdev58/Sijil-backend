@@ -1,67 +1,60 @@
 const DubaiTransportInvoice = require('../models/DubaiTransportInvoice');
 const DubaiTransportPayment = require('../models/DubaiTransportPayment');
-const Counter = require('../models/Counter');
 const { validationResult } = require('express-validator');
 const PDFGenerator = require('../utils/pdfGenerator');
 
-// Get all Dubai transport invoices with pagination and filters
+const buildInvoiceQuery = (queryParams) => {
+  const {
+    search = '',
+    status = '',
+    startDate = '',
+    endDate = '',
+    minAmount = '',
+    maxAmount = '',
+    dueDateFrom = '',
+    dueDateTo = ''
+  } = queryParams;
+
+  const query = {};
+
+  if (search) {
+    query.$or = [
+      { invoice_number: { $regex: search, $options: 'i' } },
+      { description: { $regex: search, $options: 'i' } },
+      { container_number: { $regex: search, $options: 'i' } }
+    ];
+  }
+
+  if (status) {
+    query.status = status;
+  }
+
+  if (startDate || endDate) {
+    query.invoice_date = {};
+    if (startDate) query.invoice_date.$gte = new Date(startDate);
+    if (endDate) query.invoice_date.$lte = new Date(endDate);
+  }
+
+  if (minAmount || maxAmount) {
+    query.amount_aed = {};
+    if (minAmount) query.amount_aed.$gte = parseFloat(minAmount);
+    if (maxAmount) query.amount_aed.$lte = parseFloat(maxAmount);
+  }
+
+  if (dueDateFrom || dueDateTo) {
+    query.due_date = {};
+    if (dueDateFrom) query.due_date.$gte = new Date(dueDateFrom);
+    if (dueDateTo) query.due_date.$lte = new Date(dueDateTo);
+  }
+
+  return query;
+};
+
 const getDubaiTransportInvoices = async (req, res) => {
   try {
-    const {
-      page = 1,
-      limit = 10,
-      search = '',
-      status = '',
-      agent = '',
-      startDate = '',
-      endDate = '',
-      minAmount = '',
-      maxAmount = '',
-      dueDateFrom = '',
-      dueDateTo = ''
-    } = req.query;
-
+    const { page = 1, limit = 10 } = req.query;
     const skip = (page - 1) * limit;
-    const query = {};
-
-    // Search filter
-    if (search) {
-      query.$or = [
-        { invoice_number: { $regex: search, $options: 'i' } },
-        { agent: { $regex: search, $options: 'i' } }
-      ];
-    }
-
-    // Status filter
-    if (status) {
-      query.status = status;
-    }
-
-    // Agent filter
-    if (agent) {
-      query.agent = { $regex: agent, $options: 'i' };
-    }
-
-    // Date range filter
-    if (startDate || endDate) {
-      query.invoice_date = {};
-      if (startDate) query.invoice_date.$gte = new Date(startDate);
-      if (endDate) query.invoice_date.$lte = new Date(endDate);
-    }
-
-    // Amount range filter
-    if (minAmount || maxAmount) {
-      query.amount_aed = {};
-      if (minAmount) query.amount_aed.$gte = parseFloat(minAmount);
-      if (maxAmount) query.amount_aed.$lte = parseFloat(maxAmount);
-    }
-
-    // Due date range filter
-    if (dueDateFrom || dueDateTo) {
-      query.due_date = {};
-      if (dueDateFrom) query.due_date.$gte = new Date(dueDateFrom);
-      if (dueDateTo) query.due_date.$lte = new Date(dueDateTo);
-    }
+    const query = buildInvoiceQuery(req.query);
 
     const invoices = await DubaiTransportInvoice.find(query)
       .populate('createdBy', 'name')
@@ -91,7 +84,6 @@ const getDubaiTransportInvoices = async (req, res) => {
   }
 };
 
-// Create new Dubai transport invoice
 const createDubaiTransportInvoice = async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -103,18 +95,13 @@ const createDubaiTransportInvoice = async (req, res) => {
       });
     }
 
-    const { amount_pkr, conversion_rate, amount_aed, agent, invoice_date, due_date } = req.body;
-
-    // Generate invoice number
-    const sequence = await Counter.getNextSequence('dubai_transport_invoice');
-    const invoice_number = `DT-${sequence.toString().padStart(4, '0')}`;
+    const { invoice_number, description, container_number, amount_aed, invoice_date, due_date } = req.body;
 
     const invoice = new DubaiTransportInvoice({
       invoice_number,
-      amount_pkr,
-      conversion_rate,
+      description,
+      container_number,
       amount_aed,
-      agent,
       invoice_date,
       due_date,
       createdBy: req.user._id
@@ -129,6 +116,9 @@ const createDubaiTransportInvoice = async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating Dubai transport invoice:', error);
+    if (error.code === 11000) {
+      return res.status(400).json({ success: false, message: 'Invoice number already exists' });
+    }
     res.status(500).json({
       success: false,
       message: 'Failed to create Dubai transport invoice'
@@ -136,7 +126,6 @@ const createDubaiTransportInvoice = async (req, res) => {
   }
 };
 
-// Get single Dubai transport invoice
 const getDubaiTransportInvoice = async (req, res) => {
   try {
     const invoice = await DubaiTransportInvoice.findById(req.params.id)
@@ -163,7 +152,6 @@ const getDubaiTransportInvoice = async (req, res) => {
   }
 };
 
-// Update Dubai transport invoice
 const updateDubaiTransportInvoice = async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -175,15 +163,15 @@ const updateDubaiTransportInvoice = async (req, res) => {
       });
     }
 
-    const { amount_pkr, conversion_rate, amount_aed, agent, invoice_date, due_date } = req.body;
+    const { invoice_number, description, container_number, amount_aed, invoice_date, due_date } = req.body;
 
     const invoice = await DubaiTransportInvoice.findByIdAndUpdate(
       req.params.id,
       {
-        amount_pkr,
-        conversion_rate,
+        invoice_number,
+        description,
+        container_number,
         amount_aed,
-        agent,
         invoice_date,
         due_date,
         updatedBy: req.user._id
@@ -205,6 +193,9 @@ const updateDubaiTransportInvoice = async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating Dubai transport invoice:', error);
+    if (error.code === 11000) {
+      return res.status(400).json({ success: false, message: 'Invoice number already exists' });
+    }
     res.status(500).json({
       success: false,
       message: 'Failed to update Dubai transport invoice'
@@ -212,7 +203,6 @@ const updateDubaiTransportInvoice = async (req, res) => {
   }
 };
 
-// Delete Dubai transport invoice
 const deleteDubaiTransportInvoice = async (req, res) => {
   try {
     const invoice = await DubaiTransportInvoice.findByIdAndDelete(req.params.id);
@@ -224,7 +214,6 @@ const deleteDubaiTransportInvoice = async (req, res) => {
       });
     }
 
-    // Delete associated payments
     await DubaiTransportPayment.deleteMany({ invoiceId: req.params.id });
 
     res.json({
@@ -240,7 +229,6 @@ const deleteDubaiTransportInvoice = async (req, res) => {
   }
 };
 
-// Add payment to Dubai transport invoice
 const addDubaiTransportPayment = async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -257,6 +245,25 @@ const addDubaiTransportPayment = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Dubai transport invoice not found'
+      });
+    }
+
+    const { amount_aed } = req.body;
+
+    if (amount_aed <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment amount must be greater than 0'
+      });
+    }
+
+    if (amount_aed > invoice.outstanding_amount_aed) {
+      const outstanding = invoice.outstanding_amount_aed;
+      return res.status(400).json({
+        success: false,
+        error: 'Payment amount exceeds outstanding balance',
+        message: `Payment amount exceeds the outstanding balance. Maximum payable amount is AED ${outstanding.toFixed(2)}.`,
+        outstandingAmountAED: outstanding
       });
     }
 
@@ -281,7 +288,6 @@ const addDubaiTransportPayment = async (req, res) => {
   }
 };
 
-// Get payment history for Dubai transport invoice
 const getDubaiTransportPaymentHistory = async (req, res) => {
   try {
     const invoice = await DubaiTransportInvoice.findById(req.params.id);
@@ -307,7 +313,6 @@ const getDubaiTransportPaymentHistory = async (req, res) => {
   }
 };
 
-// Get Dubai transport invoice statistics
 const getDubaiTransportInvoiceStats = async (req, res) => {
   try {
     const totalInvoices = await DubaiTransportInvoice.countDocuments();
@@ -339,7 +344,6 @@ const getDubaiTransportInvoiceStats = async (req, res) => {
   }
 };
 
-// Print Dubai transport invoice
 const printDubaiTransportInvoice = async (req, res) => {
   try {
     const invoice = await DubaiTransportInvoice.findById(req.params.id)
@@ -364,50 +368,10 @@ const printDubaiTransportInvoice = async (req, res) => {
   }
 };
 
-// Generate Dubai transport report PDF
 const generateDubaiTransportReportPDF = async (req, res) => {
   try {
-    const {
-      startDate = '',
-      endDate = '',
-      agent = '',
-      status = '',
-      minAmount = '',
-      maxAmount = '',
-      dueDateFrom = '',
-      dueDateTo = '',
-      groupBy = 'none',
-      includePayments = 'true'
-    } = req.query;
-
-    const query = {};
-
-    // Apply filters
-    if (startDate || endDate) {
-      query.invoice_date = {};
-      if (startDate) query.invoice_date.$gte = new Date(startDate);
-      if (endDate) query.invoice_date.$lte = new Date(endDate);
-    }
-
-    if (agent) {
-      query.agent = { $regex: agent, $options: 'i' };
-    }
-
-    if (status) {
-      query.status = status;
-    }
-
-    if (minAmount || maxAmount) {
-      query.amount_aed = {};
-      if (minAmount) query.amount_aed.$gte = parseFloat(minAmount);
-      if (maxAmount) query.amount_aed.$lte = parseFloat(maxAmount);
-    }
-
-    if (dueDateFrom || dueDateTo) {
-      query.due_date = {};
-      if (dueDateFrom) query.due_date.$gte = new Date(dueDateFrom);
-      if (dueDateTo) query.due_date.$lte = new Date(dueDateTo);
-    }
+    const { groupBy = 'none', includePayments = 'true' } = req.query;
+    const query = buildInvoiceQuery(req.query);
 
     let invoices = await DubaiTransportInvoice.find(query)
       .populate('createdBy', 'name')
@@ -421,14 +385,7 @@ const generateDubaiTransportReportPDF = async (req, res) => {
     }
 
     const options = {
-      startDate,
-      endDate,
-      agent,
-      status,
-      minAmount,
-      maxAmount,
-      dueDateFrom,
-      dueDateTo,
+      ...req.query,
       groupBy,
       includePayments: includePayments === 'true'
     };
@@ -444,50 +401,10 @@ const generateDubaiTransportReportPDF = async (req, res) => {
   }
 };
 
-// Generate Dubai transport report CSV
 const generateDubaiTransportReportCSV = async (req, res) => {
   try {
-    const {
-      startDate = '',
-      endDate = '',
-      agent = '',
-      status = '',
-      minAmount = '',
-      maxAmount = '',
-      dueDateFrom = '',
-      dueDateTo = '',
-      groupBy = 'none',
-      includePayments = 'true'
-    } = req.query;
-
-    const query = {};
-
-    // Apply filters
-    if (startDate || endDate) {
-      query.invoice_date = {};
-      if (startDate) query.invoice_date.$gte = new Date(startDate);
-      if (endDate) query.invoice_date.$lte = new Date(endDate);
-    }
-
-    if (agent) {
-      query.agent = { $regex: agent, $options: 'i' };
-    }
-
-    if (status) {
-      query.status = status;
-    }
-
-    if (minAmount || maxAmount) {
-      query.amount_aed = {};
-      if (minAmount) query.amount_aed.$gte = parseFloat(minAmount);
-      if (maxAmount) query.amount_aed.$lte = parseFloat(maxAmount);
-    }
-
-    if (dueDateFrom || dueDateTo) {
-      query.due_date = {};
-      if (dueDateFrom) query.due_date.$gte = new Date(dueDateFrom);
-      if (dueDateTo) query.due_date.$lte = new Date(dueDateTo);
-    }
+    const { groupBy = 'none', includePayments = 'true' } = req.query;
+    const query = buildInvoiceQuery(req.query);
 
     let invoices = await DubaiTransportInvoice.find(query)
       .populate('createdBy', 'name')
@@ -501,14 +418,7 @@ const generateDubaiTransportReportCSV = async (req, res) => {
     }
 
     const options = {
-      startDate,
-      endDate,
-      agent,
-      status,
-      minAmount,
-      maxAmount,
-      dueDateFrom,
-      dueDateTo,
+      ...req.query,
       groupBy,
       includePayments: includePayments === 'true'
     };
@@ -523,8 +433,6 @@ const generateDubaiTransportReportCSV = async (req, res) => {
     });
   }
 };
-
-
 
 module.exports = {
   getDubaiTransportInvoices,

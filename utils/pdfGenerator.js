@@ -181,6 +181,14 @@ class PDFGenerator {
       filterText += filterText ? ' | ' : '';
       filterText += `Supplier: ${filters.supplier}`;
     }
+    if (filters.containerNo) {
+      filterText += filterText ? ' | ' : '';
+      filterText += `Container: ${filters.containerNo}`;
+    }
+    if (filters.product) {
+      filterText += filterText ? ' | ' : '';
+      filterText += `Product: ${filters.product}`;
+    }
     if (filters.status) {
       filterText += filterText ? ' | ' : '';
       filterText += `Status: ${filters.status}`;
@@ -1537,10 +1545,6 @@ class PDFGenerator {
     if (filters.startDate && filters.endDate) {
       filterText += `Date Range: ${new Date(filters.startDate).toLocaleDateString()} - ${new Date(filters.endDate).toLocaleDateString()}`;
     }
-    if (filters.agent) {
-      filterText += filterText ? ' | ' : '';
-      filterText += `Agent: ${filters.agent}`;
-    }
     if (filters.status) {
       filterText += filterText ? ' | ' : '';
       filterText += `Status: ${filters.status}`;
@@ -1567,28 +1571,19 @@ class PDFGenerator {
 
     // Calculate summary
     const totalInvoices = invoices.length;
-    const totalAmountPKR = invoices.reduce((sum, inv) => sum + (inv.amount_pkr || 0), 0);
     const totalAmountAED = invoices.reduce((sum, inv) => sum + (inv.amount_aed || 0), 0);
-    const totalReceivedPKR = invoices.reduce((sum, inv) => sum + (inv.received_amount_pkr || 0), 0);
-    const totalOutstandingPKR = invoices.reduce((sum, inv) => sum + (inv.outstanding_amount_pkr || 0), 0);
+    const totalPaidAED = invoices.reduce((sum, inv) => sum + (inv.paid_amount_aed || 0), 0);
+    const totalOutstandingAED = invoices.reduce((sum, inv) => sum + (inv.outstanding_amount_aed || 0), 0);
 
-    // Create summary boxes
     const boxWidth = (this.contentWidth - 30) / 4;
     const boxHeight = 60;
     const startX = this.margin;
     const startY = this.currentY + 10;
 
-    // Total Invoices Box
     this.drawSummaryBox(startX, startY, boxWidth, boxHeight, '#4299e1', 'Total Invoices', totalInvoices.toString(), '#2b6cb0');
-
-    // Total PKR Box
-    this.drawSummaryBox(startX + boxWidth + 10, startY, boxWidth, boxHeight, '#48bb78', 'Total PKR', `PKR ${totalAmountPKR.toLocaleString()}`, '#2f855a');
-
-    // Total AED Box
-    this.drawSummaryBox(startX + (boxWidth + 10) * 2, startY, boxWidth, boxHeight, '#ed8936', 'Total AED', `AED ${totalAmountAED.toLocaleString()}`, '#c05621');
-
-    // Outstanding PKR Box
-    this.drawSummaryBox(startX + (boxWidth + 10) * 3, startY, boxWidth, boxHeight, '#f56565', 'Outstanding PKR', `PKR ${totalOutstandingPKR.toLocaleString()}`, '#c53030');
+    this.drawSummaryBox(startX + boxWidth + 10, startY, boxWidth, boxHeight, '#48bb78', 'Total AED', `AED ${totalAmountAED.toLocaleString()}`, '#2f855a');
+    this.drawSummaryBox(startX + (boxWidth + 10) * 2, startY, boxWidth, boxHeight, '#ed8936', 'Paid AED', `AED ${totalPaidAED.toLocaleString()}`, '#c05621');
+    this.drawSummaryBox(startX + (boxWidth + 10) * 3, startY, boxWidth, boxHeight, '#f56565', 'Outstanding AED', `AED ${totalOutstandingAED.toLocaleString()}`, '#c53030');
 
     this.currentY = startY + boxHeight + 60;
     this.doc.y = this.currentY;
@@ -1602,8 +1597,8 @@ class PDFGenerator {
     this.doc.moveDown(3); // Increased spacing between heading and table
 
     // Table headers
-    const headers = ['Invoice #', 'Agent', 'Amount PKR', 'Amount AED', 'Received PKR', 'Outstanding PKR', 'Status', 'Due Date'];
-    const columnWidths = [60, 70, 70, 70, 70, 80, 55, 70];
+    const headers = ['Invoice #', 'Container', 'Description', 'Amount AED', 'Paid AED', 'Outstanding AED', 'Status', 'Due Date'];
+    const columnWidths = [60, 70, 90, 70, 70, 80, 55, 70];
     const totalWidth = columnWidths.reduce((a, b) => a + b, 0);
 
     this.drawTableHeader(headers, columnWidths, this.currentY + 10);
@@ -1654,32 +1649,31 @@ class PDFGenerator {
      this.doc.text(invoice.invoice_number || '', x + 5, y + 12, { width: columnWidths[0] - 10 }); // Adjusted y offset for larger row
      x += columnWidths[0];
      
-     // Agent
+     // Container
      this.doc.font('Helvetica');
-     this.doc.text(invoice.agent || '', x + 5, y + 12, { width: columnWidths[1] - 10, ellipsis: true }); // Adjusted y offset
+     this.doc.text(invoice.container_number || '', x + 5, y + 12, { width: columnWidths[1] - 10, ellipsis: true });
      x += columnWidths[1];
-     
-     // Amount PKR
-     this.doc.font('Helvetica-Bold');
-     const amountPKR = (invoice.amount_pkr || 0).toLocaleString();
-     this.doc.text(`PKR ${amountPKR}`, x + 5, y + 12, { width: columnWidths[2] - 10, align: 'right' }); // Adjusted y offset
+
+     // Description
+     this.doc.text(invoice.description || '', x + 5, y + 12, { width: columnWidths[2] - 10, ellipsis: true });
      x += columnWidths[2];
-     
+
      // Amount AED
+     this.doc.font('Helvetica-Bold');
      const amountAED = (invoice.amount_aed || 0).toLocaleString();
-     this.doc.text(`AED ${amountAED}`, x + 5, y + 12, { width: columnWidths[3] - 10, align: 'right' }); // Adjusted y offset
+     this.doc.text(`AED ${amountAED}`, x + 5, y + 12, { width: columnWidths[3] - 10, align: 'right' });
      x += columnWidths[3];
-     
-     // Received PKR
+
+     // Paid AED
      this.doc.fillColor('#48bb78');
-     const receivedPKR = (invoice.received_amount_pkr || 0).toLocaleString();
-     this.doc.text(`PKR ${receivedPKR}`, x + 5, y + 12, { width: columnWidths[4] - 10, align: 'right' }); // Adjusted y offset
+     const paidAED = (invoice.paid_amount_aed || 0).toLocaleString();
+     this.doc.text(`AED ${paidAED}`, x + 5, y + 12, { width: columnWidths[4] - 10, align: 'right' });
      x += columnWidths[4];
-     
-     // Outstanding PKR
+
+     // Outstanding AED
      this.doc.fillColor('#f56565');
-     const outstandingPKR = (invoice.outstanding_amount_pkr || 0).toLocaleString();
-     this.doc.text(`PKR ${outstandingPKR}`, x + 5, y + 12, { width: columnWidths[5] - 10, align: 'right' }); // Adjusted y offset
+     const outstandingAED = (invoice.outstanding_amount_aed || 0).toLocaleString();
+     this.doc.text(`AED ${outstandingAED}`, x + 5, y + 12, { width: columnWidths[5] - 10, align: 'right' });
      x += columnWidths[5];
      
      // Status
@@ -1790,16 +1784,16 @@ class PDFGenerator {
   generateFreightCSV(data) {
     const { invoices, payments, includePayments } = data;
     
-    let csv = 'Invoice Number,Agent,Amount PKR,Amount AED,Received PKR,Outstanding PKR,Status,Due Date,Invoice Date\n';
+    let csv = 'Invoice Number,Container Number,Description,Amount AED,Paid AED,Outstanding AED,Status,Due Date,Invoice Date\n';
     
     invoices.forEach(invoice => {
       const row = [
         invoice.invoice_number || '',
-        invoice.agent || '',
-        invoice.amount_pkr || 0,
+        invoice.container_number || '',
+        invoice.description || '',
         invoice.amount_aed || 0,
-        invoice.received_amount_pkr || 0,
-        invoice.outstanding_amount_pkr || 0,
+        invoice.paid_amount_aed || 0,
+        invoice.outstanding_amount_aed || 0,
         invoice.status || '',
         invoice.due_date ? new Date(invoice.due_date).toLocaleDateString('en-GB') : '',
         invoice.invoice_date ? new Date(invoice.invoice_date).toLocaleDateString('en-GB') : ''
@@ -1813,7 +1807,7 @@ class PDFGenerator {
         invoicePayments.forEach(payment => {
           const paymentRow = [
             `  Payment: ${payment.paymentDate ? new Date(payment.paymentDate).toLocaleDateString('en-GB') : ''}`,
-            `  PKR ${payment.amount || 0}`,
+            `  AED ${payment.amount || 0}`,
             (payment.paymentMethod || '').replace('_', ' ').toUpperCase(),
             (payment.paymentType || '').toUpperCase(),
             payment.reference || '',
@@ -1827,6 +1821,32 @@ class PDFGenerator {
     });
     
     return csv;
+  }
+
+  // Generate freight invoice
+  generateFreightInvoice(res, invoice) {
+    const filename = `freight-invoice-${invoice.invoice_number}.pdf`;
+    const doc = this.initDocument(res, filename);
+
+    this.doc.fontSize(20).font('Helvetica-Bold');
+    this.doc.text('Freight Invoice', this.margin, 50, { align: 'center' });
+    this.doc.moveDown();
+
+    this.doc.fontSize(12).font('Helvetica');
+    this.doc.text(`Invoice Number: ${invoice.invoice_number}`, this.margin, 100);
+    this.doc.text(`Container Number: ${invoice.container_number || 'N/A'}`, this.margin, 120);
+    this.doc.text(`Description: ${invoice.description || 'N/A'}`, this.margin, 140);
+    this.doc.text(`Date: ${new Date(invoice.invoice_date).toLocaleDateString()}`, this.margin, 160);
+    this.doc.text(`Due Date: ${new Date(invoice.due_date).toLocaleDateString()}`, this.margin, 180);
+    this.doc.moveDown();
+
+    this.doc.fontSize(14).font('Helvetica-Bold');
+    this.doc.text(`Amount (AED): ${invoice.amount_aed.toFixed(2)}`, this.margin, 220);
+    this.doc.text(`Paid Amount (AED): ${invoice.paid_amount_aed.toFixed(2)}`, this.margin, 240);
+    this.doc.text(`Outstanding Amount (AED): ${invoice.outstanding_amount_aed.toFixed(2)}`, this.margin, 260);
+    this.doc.text(`Status: ${invoice.status.toUpperCase()}`, this.margin, 280);
+
+    this.doc.end();
   }
 
   // Generate Dubai transport invoice
@@ -1844,15 +1864,16 @@ class PDFGenerator {
     this.doc.text(`Invoice Number: ${invoice.invoice_number}`, this.margin, 100);
     this.doc.text(`Date: ${new Date(invoice.invoice_date).toLocaleDateString()}`, this.margin, 120);
     this.doc.text(`Due Date: ${new Date(invoice.due_date).toLocaleDateString()}`, this.margin, 140);
-    this.doc.text(`Agent: ${invoice.agent}`, this.margin, 160);
+    this.doc.text(`Container Number: ${invoice.container_number || 'N/A'}`, this.margin, 160);
+    this.doc.text(`Description: ${invoice.description || 'N/A'}`, this.margin, 180);
     this.doc.moveDown();
 
     // Amount details
     this.doc.fontSize(14).font('Helvetica-Bold');
-    this.doc.text(`Amount (AED): ${invoice.amount_aed.toFixed(2)}`, this.margin, 200);
-    this.doc.text(`Paid Amount (AED): ${invoice.paid_amount_aed.toFixed(2)}`, this.margin, 220);
-    this.doc.text(`Outstanding Amount (AED): ${invoice.outstanding_amount_aed.toFixed(2)}`, this.margin, 240);
-    this.doc.text(`Status: ${invoice.status.toUpperCase()}`, this.margin, 260);
+    this.doc.text(`Amount (AED): ${invoice.amount_aed.toFixed(2)}`, this.margin, 220);
+    this.doc.text(`Paid Amount (AED): ${invoice.paid_amount_aed.toFixed(2)}`, this.margin, 240);
+    this.doc.text(`Outstanding Amount (AED): ${invoice.outstanding_amount_aed.toFixed(2)}`, this.margin, 260);
+    this.doc.text(`Status: ${invoice.status.toUpperCase()}`, this.margin, 280);
 
     this.doc.end();
   }
@@ -1882,7 +1903,7 @@ class PDFGenerator {
 
     // Table header with proper column widths
     const tableY = 200;
-    const columnWidths = [80, 120, 100, 100, 120, 80];
+    const columnWidths = [80, 90, 100, 100, 120, 80];
     const startX = this.margin;
     let currentX = startX;
     
@@ -1890,7 +1911,7 @@ class PDFGenerator {
     this.doc.fillColor('#4a5568');
     
     // Headers
-    const headers = ['Invoice #', 'Agent', 'Amount (AED)', 'Paid (AED)', 'Outstanding (AED)', 'Status'];
+    const headers = ['Invoice #', 'Container', 'Amount (AED)', 'Paid (AED)', 'Outstanding (AED)', 'Status'];
     headers.forEach((header, index) => {
       this.doc.text(header, currentX + 2, tableY, { width: columnWidths[index] - 4, align: 'center' });
       currentX += columnWidths[index];
@@ -1913,8 +1934,8 @@ class PDFGenerator {
       this.doc.text(invoice.invoice_number, currentX + 2, currentY, { width: columnWidths[0] - 4 });
       currentX += columnWidths[0];
       
-      // Agent
-      this.doc.text(invoice.agent, currentX + 2, currentY, { width: columnWidths[1] - 4 });
+      // Container
+      this.doc.text(invoice.container_number || '', currentX + 2, currentY, { width: columnWidths[1] - 4 });
       currentX += columnWidths[1];
       
       // Amount AED
@@ -1945,10 +1966,10 @@ class PDFGenerator {
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     
-    let csv = 'Invoice #,Agent,Amount (AED),Paid (AED),Outstanding (AED),Status,Due Date,Invoice Date\n';
+    let csv = 'Invoice #,Container Number,Description,Amount (AED),Paid (AED),Outstanding (AED),Status,Due Date,Invoice Date\n';
     
     dubaiTransportInvoices.forEach(invoice => {
-      csv += `"${invoice.invoice_number}","${invoice.agent}",${invoice.amount_aed},${invoice.paid_amount_aed},${invoice.outstanding_amount_aed},"${invoice.status}","${new Date(invoice.due_date).toLocaleDateString()}","${new Date(invoice.invoice_date).toLocaleDateString()}"\n`;
+      csv += `"${invoice.invoice_number}","${invoice.container_number || ''}","${invoice.description || ''}",${invoice.amount_aed},${invoice.paid_amount_aed},${invoice.outstanding_amount_aed},"${invoice.status}","${new Date(invoice.due_date).toLocaleDateString()}","${new Date(invoice.invoice_date).toLocaleDateString()}"\n`;
     });
     
     res.send(csv);

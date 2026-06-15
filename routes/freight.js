@@ -18,18 +18,19 @@ const {
 
 const router = express.Router();
 
+const invoiceValidation = [
+  body('invoice_number', 'Invoice number is required').notEmpty().trim(),
+  body('amount_aed', 'Amount in AED is required and must be greater than 0').isFloat({ min: 0.01 }),
+  body('description').optional().trim().isLength({ max: 500 }),
+  body('container_number').optional().trim().isLength({ max: 100 }),
+  body('invoice_date', 'Invoice date is required').isISO8601(),
+  body('due_date', 'Due date is required').isISO8601(),
+];
+
 // Create
 router.post(
   '/',
-  [
-    protect,
-    requireEmployee,
-    body('amount_pkr', 'Amount in PKR is required and must be greater than 0').isFloat({ min: 0.01 }),
-    body('conversion_rate', 'Conversion rate is required and must be greater than 0').isFloat({ min: 0.000001 }),
-    body('agent', 'Agent is required').notEmpty().trim(),
-    body('invoice_date', 'Invoice date is required').isISO8601(),
-    body('due_date', 'Due date is required').isISO8601(),
-  ],
+  [protect, requireEmployee, ...invoiceValidation],
   validateRequest,
   createFreightInvoice
 );
@@ -53,9 +54,10 @@ router.put(
   [
     protect,
     requireEmployee,
-    body('amount_pkr').optional().isFloat({ min: 0.01 }),
-    body('conversion_rate').optional().isFloat({ min: 0.000001 }),
-    body('agent').optional().notEmpty().trim(),
+    body('invoice_number').optional().notEmpty().trim(),
+    body('amount_aed').optional().isFloat({ min: 0.01 }),
+    body('description').optional().trim().isLength({ max: 500 }),
+    body('container_number').optional().trim().isLength({ max: 100 }),
     body('invoice_date').optional().isISO8601(),
     body('due_date').optional().isISO8601(),
   ],

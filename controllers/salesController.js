@@ -8,6 +8,7 @@ const Category = require('../models/Category');
 const { createSalesPaymentEntry } = require('./dailyLedgerController');
 
 const escapeRegex = (text = '') => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const exactMatchRegex = (value = '') => `^${escapeRegex(value.trim())}$`;
 const toArray = (value) => {
   if (Array.isArray(value)) return value;
   if (typeof value === 'string') {
@@ -398,7 +399,7 @@ const buildCustomerOutstandingPipeline = ({
       pipeline.unshift({
         $match: {
           $or: [
-            { customer: { $regex: search, $options: 'i' } },
+            { customer: { $regex: exactMatchRegex(search), $options: 'i' } },
             { product: { $regex: search, $options: 'i' } }
           ]
         }
@@ -406,7 +407,7 @@ const buildCustomerOutstandingPipeline = ({
     } else {
       pipeline.unshift({
         $match: {
-          customer: { $regex: search, $options: 'i' }
+          customer: { $regex: exactMatchRegex(search), $options: 'i' }
         }
       });
     }
@@ -568,7 +569,7 @@ const getSales = async (req, res) => {
     // Search functionality
     if (search) {
       query.$or = [
-        { customer: { $regex: search, $options: 'i' } },
+        { customer: { $regex: exactMatchRegex(search), $options: 'i' } },
         { supplier: { $regex: search, $options: 'i' } },
         { product: { $regex: search, $options: 'i' } },
         { invoiceNumber: { $regex: search, $options: 'i' } },
@@ -579,7 +580,7 @@ const getSales = async (req, res) => {
 
     // Individual field filters
     if (customer) {
-      query.customer = { $regex: customer, $options: 'i' };
+      query.customer = { $regex: exactMatchRegex(customer), $options: 'i' };
     }
 
     if (supplier) {
@@ -1400,6 +1401,7 @@ const generateSalesReport = async (req, res) => {
       customer = '',
       supplier = '',
       containerNo = '',
+      product = '',
       status = '',
       statuses = '',
       format = 'json', // json, csv, pdf
@@ -1423,7 +1425,7 @@ const generateSalesReport = async (req, res) => {
     }
 
     if (customer) {
-      query.customer = { $regex: customer, $options: 'i' };
+      query.customer = { $regex: exactMatchRegex(customer), $options: 'i' };
     }
 
     if (supplier) {
@@ -1432,6 +1434,10 @@ const generateSalesReport = async (req, res) => {
 
     if (containerNo) {
       query.containerNo = { $regex: containerNo, $options: 'i' };
+    }
+
+    if (product) {
+      query.product = { $regex: product, $options: 'i' };
     }
 
     if (statuses) {
@@ -1564,6 +1570,7 @@ const generateSalesReport = async (req, res) => {
         customer,
         supplier,
         containerNo,
+        product,
         status,
         statuses,
         groupBy,
@@ -1636,6 +1643,7 @@ const generateSalesReport = async (req, res) => {
         customer,
         supplier,
         containerNo,
+        product,
         status,
         statuses
       });
@@ -1969,10 +1977,19 @@ const generateCustomerOutstandingPDF = async (req, res) => {
 // @access  Private (Admin/Employee)
 const getUniqueProducts = async (req, res) => {
   try {
-    const products = await Sales.distinct('product', { 
-      outstandingAmount: { $gt: 0 },
+    const { customer = '', scope = 'outstanding' } = req.query;
+
+    const query = {
       product: { $exists: true, $ne: null, $ne: '' }
-    });
+    };
+
+    if (customer) {
+      query.customer = { $regex: exactMatchRegex(customer), $options: 'i' };
+    } else if (scope !== 'all') {
+      query.outstandingAmount = { $gt: 0 };
+    }
+
+    const products = await Sales.distinct('product', query);
     
     const sortedProducts = products.sort();
     

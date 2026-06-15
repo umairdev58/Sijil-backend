@@ -1,27 +1,63 @@
 const FreightInvoice = require('../models/FreightInvoice');
 const FreightPayment = require('../models/FreightPayment');
-const Counter = require('../models/Counter');
 const PDFGenerator = require('../utils/pdfGenerator');
 
-// Generate invoice number
-const generateInvoiceNumber = async () => {
-  const sequence = await Counter.getNextSequence('freight_invoice');
-  return `FR-${sequence.toString().padStart(4, '0')}`;
+const buildInvoiceQuery = (queryParams) => {
+  const {
+    search = '',
+    status = '',
+    startDate = '',
+    endDate = '',
+    minAmount = '',
+    maxAmount = '',
+    dueDateFrom = '',
+    dueDateTo = ''
+  } = queryParams;
+
+  const query = {};
+
+  if (search) {
+    query.$or = [
+      { invoice_number: { $regex: search, $options: 'i' } },
+      { description: { $regex: search, $options: 'i' } },
+      { container_number: { $regex: search, $options: 'i' } }
+    ];
+  }
+
+  if (status && status !== 'all') {
+    query.status = status;
+  }
+
+  if (startDate || endDate) {
+    query.invoice_date = {};
+    if (startDate) query.invoice_date.$gte = new Date(startDate);
+    if (endDate) query.invoice_date.$lte = new Date(endDate);
+  }
+
+  if (minAmount || maxAmount) {
+    query.amount_aed = {};
+    if (minAmount) query.amount_aed.$gte = parseFloat(minAmount);
+    if (maxAmount) query.amount_aed.$lte = parseFloat(maxAmount);
+  }
+
+  if (dueDateFrom || dueDateTo) {
+    query.due_date = {};
+    if (dueDateFrom) query.due_date.$gte = new Date(dueDateFrom);
+    if (dueDateTo) query.due_date.$lte = new Date(dueDateTo);
+  }
+
+  return query;
 };
 
-// Create freight invoice
 const createFreightInvoice = async (req, res) => {
   try {
     const data = req.body;
 
-    // Generate invoice number
-    const invoice_number = await generateInvoiceNumber();
-
     const freightInvoice = new FreightInvoice({
-      invoice_number,
-      amount_pkr: data.amount_pkr,
-      conversion_rate: data.conversion_rate,
-      agent: data.agent,
+      invoice_number: data.invoice_number,
+      description: data.description,
+      container_number: data.container_number,
+      amount_aed: data.amount_aed,
       invoice_date: data.invoice_date,
       due_date: data.due_date,
       createdBy: req.user.id
@@ -30,71 +66,21 @@ const createFreightInvoice = async (req, res) => {
     await freightInvoice.save();
     const saved = freightInvoice.toObject();
     saved._id = saved._id.toString();
-    
+
     res.status(201).json({ success: true, data: saved });
   } catch (error) {
     console.error('Create freight invoice error:', error);
+    if (error.code === 11000) {
+      return res.status(400).json({ error: 'Duplicate invoice number', message: 'Invoice number already exists' });
+    }
     res.status(500).json({ error: 'Server error', message: 'Internal server error' });
   }
 };
 
-// Get freight invoices with pagination and enhanced filters
 const getFreightInvoices = async (req, res) => {
   try {
-    const { 
-      page = 1, 
-      limit = 10, 
-      search = '', 
-      status = '', 
-      agent = '',
-      startDate = '',
-      endDate = '',
-      minAmount = '',
-      maxAmount = '',
-      dueDateFrom = '',
-      dueDateTo = ''
-    } = req.query;
-    
-    const query = {};
-    
-    // Search filter
-    if (search) {
-      query.$or = [
-        { invoice_number: { $regex: search, $options: 'i' } },
-        { agent: { $regex: search, $options: 'i' } }
-      ];
-    }
-    
-    // Status filter
-    if (status && status !== 'all') {
-      query.status = status;
-    }
-    
-    // Agent filter
-    if (agent) {
-      query.agent = { $regex: agent, $options: 'i' };
-    }
-    
-    // Date range filters
-    if (startDate || endDate) {
-      query.invoice_date = {};
-      if (startDate) query.invoice_date.$gte = new Date(startDate);
-      if (endDate) query.invoice_date.$lte = new Date(endDate);
-    }
-    
-    // Amount range filters
-    if (minAmount || maxAmount) {
-      query.amount_pkr = {};
-      if (minAmount) query.amount_pkr.$gte = parseFloat(minAmount);
-      if (maxAmount) query.amount_pkr.$lte = parseFloat(maxAmount);
-    }
-    
-    // Due date range filters
-    if (dueDateFrom || dueDateTo) {
-      query.due_date = {};
-      if (dueDateFrom) query.due_date.$gte = new Date(dueDateFrom);
-      if (dueDateTo) query.due_date.$lte = new Date(dueDateTo);
-    }
+    const { page = 1, limit = 10 } = req.query;
+    const query = buildInvoiceQuery(req.query);
 
     const freightInvoices = await FreightInvoice.find(query)
       .sort({ createdAt: -1 })
@@ -104,7 +90,7 @@ const getFreightInvoices = async (req, res) => {
       .populate('updatedBy', 'name email');
 
     const total = await FreightInvoice.countDocuments(query);
-    
+
     res.json({
       success: true,
       data: freightInvoices,
@@ -121,22 +107,21 @@ const getFreightInvoices = async (req, res) => {
   }
 };
 
-// Get single freight invoice
 const getFreightInvoiceById = async (req, res) => {
   try {
     const { id } = req.params;
     if (!id.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({ error: 'Invalid freight invoice ID' });
     }
-    
+
     const freightInvoice = await FreightInvoice.findById(id)
       .populate('createdBy', 'name email')
       .populate('updatedBy', 'name email');
-      
+
     if (!freightInvoice) {
       return res.status(404).json({ error: 'Freight invoice not found' });
     }
-    
+
     res.json({ success: true, data: freightInvoice });
   } catch (error) {
     console.error('Get freight invoice error:', error);
@@ -144,44 +129,44 @@ const getFreightInvoiceById = async (req, res) => {
   }
 };
 
-// Update freight invoice
 const updateFreightInvoice = async (req, res) => {
   try {
     const { id } = req.params;
     if (!id.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({ error: 'Invalid freight invoice ID' });
     }
-    
+
     const data = req.body;
     const freightInvoice = await FreightInvoice.findById(id);
-    
+
     if (!freightInvoice) {
       return res.status(404).json({ error: 'Freight invoice not found' });
     }
 
-    // Update fields
     Object.assign(freightInvoice, data);
     freightInvoice.updatedBy = req.user.id;
-    
+
     await freightInvoice.save();
     const updated = freightInvoice.toObject();
     updated._id = updated._id.toString();
-    
+
     res.json({ success: true, data: updated });
   } catch (error) {
     console.error('Update freight invoice error:', error);
+    if (error.code === 11000) {
+      return res.status(400).json({ error: 'Duplicate invoice number', message: 'Invoice number already exists' });
+    }
     res.status(500).json({ error: 'Server error', message: 'Internal server error' });
   }
 };
 
-// Add payment to freight invoice
 const addFreightPayment = async (req, res) => {
   try {
     const { id } = req.params;
     if (!id.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({ error: 'Invalid freight invoice ID' });
     }
-    
+
     const {
       amount,
       paymentType,
@@ -192,7 +177,7 @@ const addFreightPayment = async (req, res) => {
     } = req.body;
 
     const freightInvoice = await FreightInvoice.findById(id);
-    
+
     if (!freightInvoice) {
       return res.status(404).json({ error: 'Freight invoice not found' });
     }
@@ -201,11 +186,16 @@ const addFreightPayment = async (req, res) => {
       return res.status(400).json({ error: 'Payment amount must be greater than 0' });
     }
 
-    if (amount > freightInvoice.outstanding_amount_pkr) {
-      return res.status(400).json({ error: 'Payment amount cannot be greater than outstanding amount' });
+    if (amount > freightInvoice.outstanding_amount_aed) {
+      const outstanding = freightInvoice.outstanding_amount_aed;
+      return res.status(400).json({
+        success: false,
+        error: 'Payment amount exceeds outstanding balance',
+        message: `Payment amount exceeds the outstanding balance. Maximum payable amount is AED ${outstanding.toFixed(2)}.`,
+        outstandingAmountAED: outstanding
+      });
     }
 
-    // Add payment to freight invoice
     const payment = await freightInvoice.addPayment({
       amount,
       receivedBy: req.user.id,
@@ -216,7 +206,6 @@ const addFreightPayment = async (req, res) => {
       paymentDate: paymentDate ? new Date(paymentDate) : new Date()
     });
 
-    // Get updated freight invoice with payment history
     const updatedFreightInvoice = await FreightInvoice.findById(id)
       .populate('createdBy', 'name email')
       .populate('updatedBy', 'name email')
@@ -239,22 +228,21 @@ const addFreightPayment = async (req, res) => {
   }
 };
 
-// Get freight invoice payment history
 const getFreightPaymentHistory = async (req, res) => {
   try {
     const { id } = req.params;
     if (!id.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({ error: 'Invalid freight invoice ID' });
     }
-    
+
     const freightInvoice = await FreightInvoice.findById(id);
-    
+
     if (!freightInvoice) {
       return res.status(404).json({ error: 'Freight invoice not found' });
     }
 
     const paymentHistory = await freightInvoice.getPaymentHistory();
-    
+
     res.json({
       success: true,
       data: paymentHistory
@@ -265,22 +253,21 @@ const getFreightPaymentHistory = async (req, res) => {
   }
 };
 
-// Delete freight invoice
 const deleteFreightInvoice = async (req, res) => {
   try {
     const { id } = req.params;
     if (!id.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({ error: 'Invalid freight invoice ID' });
     }
-    
+
     const freightInvoice = await FreightInvoice.findById(id);
-    
+
     if (!freightInvoice) {
       return res.status(404).json({ error: 'Freight invoice not found' });
     }
 
     await FreightInvoice.findByIdAndDelete(id);
-    
+
     res.json({ success: true, message: 'Freight invoice deleted successfully' });
   } catch (error) {
     console.error('Delete freight invoice error:', error);
@@ -288,7 +275,6 @@ const deleteFreightInvoice = async (req, res) => {
   }
 };
 
-// Get freight invoice statistics
 const getFreightInvoiceStats = async (req, res) => {
   try {
     const totalInvoices = await FreightInvoice.countDocuments();
@@ -296,27 +282,15 @@ const getFreightInvoiceStats = async (req, res) => {
     const unpaidInvoices = await FreightInvoice.countDocuments({ status: 'unpaid' });
     const partiallyPaidInvoices = await FreightInvoice.countDocuments({ status: 'partially_paid' });
     const overdueInvoices = await FreightInvoice.countDocuments({ status: 'overdue' });
-    
-    const totalAmountPKR = await FreightInvoice.aggregate([
-      { $group: { _id: null, total: { $sum: '$amount_pkr' } } }
-    ]);
-    
+
     const totalAmountAED = await FreightInvoice.aggregate([
       { $group: { _id: null, total: { $sum: '$amount_aed' } } }
     ]);
-    
-    const receivedAmountPKR = await FreightInvoice.aggregate([
-      { $group: { _id: null, total: { $sum: '$received_amount_pkr' } } }
-    ]);
-    
+
     const receivedAmountAED = await FreightInvoice.aggregate([
-      { $group: { _id: null, total: { $sum: '$received_amount_aed' } } }
+      { $group: { _id: null, total: { $sum: '$paid_amount_aed' } } }
     ]);
-    
-    const outstandingAmountPKR = await FreightInvoice.aggregate([
-      { $group: { _id: null, total: { $sum: '$outstanding_amount_pkr' } } }
-    ]);
-    
+
     const outstandingAmountAED = await FreightInvoice.aggregate([
       { $group: { _id: null, total: { $sum: '$outstanding_amount_aed' } } }
     ]);
@@ -329,11 +303,8 @@ const getFreightInvoiceStats = async (req, res) => {
         unpaidInvoices,
         partiallyPaidInvoices,
         overdueInvoices,
-        totalAmountPKR: totalAmountPKR[0]?.total || 0,
         totalAmountAED: totalAmountAED[0]?.total || 0,
-        receivedAmountPKR: receivedAmountPKR[0]?.total || 0,
         receivedAmountAED: receivedAmountAED[0]?.total || 0,
-        outstandingAmountPKR: outstandingAmountPKR[0]?.total || 0,
         outstandingAmountAED: outstandingAmountAED[0]?.total || 0
       }
     });
@@ -343,17 +314,16 @@ const getFreightInvoiceStats = async (req, res) => {
   }
 };
 
-// Print freight invoice PDF
 const printFreightInvoice = async (req, res) => {
   try {
     if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({ error: 'Invalid freight invoice ID' });
     }
-    
+
     const freightInvoice = await FreightInvoice.findById(req.params.id)
       .populate('createdBy', 'name email')
       .populate('updatedBy', 'name email');
-      
+
     if (!freightInvoice) {
       return res.status(404).json({ error: 'Freight invoice not found' });
     }
@@ -366,57 +336,16 @@ const printFreightInvoice = async (req, res) => {
   }
 };
 
-// Generate freight report PDF
 const generateFreightReportPDF = async (req, res) => {
   try {
-    const { 
-      startDate, 
-      endDate, 
-      agent, 
-      status, 
-      minAmount, 
-      maxAmount, 
-      dueDateFrom, 
-      dueDateTo,
-      groupBy = 'none',
-      includePayments = 'true'
-    } = req.query;
-    
-    const query = {};
-    
-    // Apply filters
-    if (startDate || endDate) {
-      query.invoice_date = {};
-      if (startDate) query.invoice_date.$gte = new Date(startDate);
-      if (endDate) query.invoice_date.$lte = new Date(endDate);
-    }
-    
-    if (agent) {
-      query.agent = { $regex: agent, $options: 'i' };
-    }
-    
-    if (status && status !== 'all') {
-      query.status = status;
-    }
-    
-    if (minAmount || maxAmount) {
-      query.amount_pkr = {};
-      if (minAmount) query.amount_pkr.$gte = parseFloat(minAmount);
-      if (maxAmount) query.amount_pkr.$lte = parseFloat(maxAmount);
-    }
-    
-    if (dueDateFrom || dueDateTo) {
-      query.due_date = {};
-      if (dueDateFrom) query.due_date.$gte = new Date(dueDateFrom);
-      if (dueDateTo) query.due_date.$lte = new Date(dueDateTo);
-    }
+    const { groupBy = 'none', includePayments = 'true' } = req.query;
+    const query = buildInvoiceQuery(req.query);
 
     const freightInvoices = await FreightInvoice.find(query)
       .populate('createdBy', 'name email')
       .populate('updatedBy', 'name email')
       .sort({ createdAt: -1 });
 
-    // Get payment history if requested
     let paymentHistory = [];
     if (includePayments === 'true') {
       const invoiceIds = freightInvoices.map(invoice => invoice._id);
@@ -439,57 +368,16 @@ const generateFreightReportPDF = async (req, res) => {
   }
 };
 
-// Generate freight report CSV
 const generateFreightReportCSV = async (req, res) => {
   try {
-    const { 
-      startDate, 
-      endDate, 
-      agent, 
-      status, 
-      minAmount, 
-      maxAmount, 
-      dueDateFrom, 
-      dueDateTo,
-      groupBy = 'none',
-      includePayments = 'true'
-    } = req.query;
-    
-    const query = {};
-    
-    // Apply filters
-    if (startDate || endDate) {
-      query.invoice_date = {};
-      if (startDate) query.invoice_date.$gte = new Date(startDate);
-      if (endDate) query.invoice_date.$lte = new Date(endDate);
-    }
-    
-    if (agent) {
-      query.agent = { $regex: agent, $options: 'i' };
-    }
-    
-    if (status && status !== 'all') {
-      query.status = status;
-    }
-    
-    if (minAmount || maxAmount) {
-      query.amount_pkr = {};
-      if (minAmount) query.amount_pkr.$gte = parseFloat(minAmount);
-      if (maxAmount) query.amount_pkr.$lte = parseFloat(maxAmount);
-    }
-    
-    if (dueDateFrom || dueDateTo) {
-      query.due_date = {};
-      if (dueDateFrom) query.due_date.$gte = new Date(dueDateFrom);
-      if (dueDateTo) query.due_date.$lte = new Date(dueDateTo);
-    }
+    const { groupBy = 'none', includePayments = 'true' } = req.query;
+    const query = buildInvoiceQuery(req.query);
 
     const freightInvoices = await FreightInvoice.find(query)
       .populate('createdBy', 'name email')
       .populate('updatedBy', 'name email')
       .sort({ createdAt: -1 });
 
-    // Get payment history if requested
     let paymentHistory = [];
     if (includePayments === 'true') {
       const invoiceIds = freightInvoices.map(invoice => invoice._id);
@@ -498,7 +386,6 @@ const generateFreightReportCSV = async (req, res) => {
         .sort({ paymentDate: -1 });
     }
 
-    // Generate CSV
     const csv = new PDFGenerator();
     csv.generateFreightReportCSV(res, {
       invoices: freightInvoices,
