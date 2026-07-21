@@ -3,14 +3,42 @@ const LedgerEntry = require('../models/LedgerEntry');
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 
+const dayRange = (date) => {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(date);
+  end.setHours(23, 59, 59, 999);
+  return { $gte: start, $lte: end };
+};
+
+const findDailyLedger = (organizationId, date) => DailyLedger.findOne({
+  organizationId,
+  date: dayRange(date)
+});
+
+const findLedgerEntries = (organizationId, date) => LedgerEntry.find({
+  organizationId,
+  ledger_date: dayRange(date)
+}).sort({ created_at: 1 });
+
+const createOrUpdateLedger = (organizationId, date, data) => {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  return DailyLedger.findOneAndUpdate(
+    { organizationId, date: start },
+    { ...data, organizationId, date: start },
+    { upsert: true, new: true, runValidators: true }
+  );
+};
+
 // Get daily ledger by date
 const getDailyLedger = async (req, res) => {
   try {
     const { date } = req.params;
     const ledgerDate = new Date(date);
     
-    const dailyLedger = await DailyLedger.findByDate(ledgerDate);
-    const entries = await LedgerEntry.findByDate(ledgerDate);
+    const dailyLedger = await findDailyLedger(req.organizationId, ledgerDate);
+    const entries = await findLedgerEntries(req.organizationId, ledgerDate);
     
     if (!dailyLedger) {
       return res.status(404).json({
@@ -48,7 +76,7 @@ const createOrUpdateDailyLedger = async (req, res) => {
     }
     
     const ledgerDate = new Date(date);
-    const existingLedger = await DailyLedger.findByDate(ledgerDate);
+    const existingLedger = await findDailyLedger(req.organizationId, ledgerDate);
     
     if (existingLedger && existingLedger.is_closed) {
       return res.status(400).json({
@@ -63,7 +91,7 @@ const createOrUpdateDailyLedger = async (req, res) => {
       notes: notes || ''
     };
     
-    const dailyLedger = await DailyLedger.createOrUpdate(ledgerDate, ledgerData);
+    const dailyLedger = await createOrUpdateLedger(req.organizationId, ledgerDate, ledgerData);
     
     res.json({
       success: true,
@@ -93,7 +121,7 @@ const addLedgerEntry = async (req, res) => {
     
     // Check if daily ledger exists for this date
     const ledgerDate = new Date(ledger_date);
-    const dailyLedger = await DailyLedger.findByDate(ledgerDate);
+    const dailyLedger = await findDailyLedger(req.organizationId, ledgerDate);
     
     if (!dailyLedger) {
       return res.status(400).json({
@@ -110,6 +138,7 @@ const addLedgerEntry = async (req, res) => {
     }
     
     const entry = new LedgerEntry({
+      organizationId: req.organizationId,
       ledger_date: ledgerDate,
       type,
       mode,
@@ -123,7 +152,7 @@ const addLedgerEntry = async (req, res) => {
     await entry.save();
     
     // Update daily ledger totals
-    await updateDailyLedgerTotals(ledgerDate);
+    await updateDailyLedgerTotals(req.organizationId, ledgerDate);
     
     res.json({
       success: true,
@@ -145,7 +174,7 @@ const getLedgerEntries = async (req, res) => {
     const { date } = req.params;
     const ledgerDate = new Date(date);
     
-    const entries = await LedgerEntry.findByDate(ledgerDate);
+    const entries = await findLedgerEntries(req.organizationId, ledgerDate);
     
     res.json({
       success: true,
@@ -165,7 +194,7 @@ const getAllLedgerEntries = async (req, res) => {
   try {
     const { startDate, endDate, type, category, search } = req.query;
     
-    let query = {};
+    let query = { organizationId: req.organizationId };
     
     // Date range filter
     if (startDate || endDate) {
@@ -199,7 +228,7 @@ const getAllLedgerEntries = async (req, res) => {
     
     const entries = await LedgerEntry.find(query)
       .sort({ date: -1, createdAt: -1 })
-      .populate('createdBy', 'name email');
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } });
     
     res.json({
       success: true,
@@ -219,7 +248,7 @@ const deleteLedgerEntry = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const entry = await LedgerEntry.findById(id);
+    const entry = await LedgerEntry.findOne({ _id: id, organizationId: req.organizationId });
     if (!entry) {
       return res.status(404).json({
         success: false,
@@ -228,7 +257,7 @@ const deleteLedgerEntry = async (req, res) => {
     }
     
     // Check if daily ledger is closed
-    const dailyLedger = await DailyLedger.findByDate(entry.ledger_date);
+    const dailyLedger = await findDailyLedger(req.organizationId, entry.ledger_date);
     if (dailyLedger && dailyLedger.is_closed) {
       return res.status(400).json({
         success: false,
@@ -236,10 +265,10 @@ const deleteLedgerEntry = async (req, res) => {
       });
     }
     
-    await LedgerEntry.findByIdAndDelete(id);
+    await LedgerEntry.deleteOne({ _id: id, organizationId: req.organizationId });
     
     // Update daily ledger totals
-    await updateDailyLedgerTotals(entry.ledger_date);
+    await updateDailyLedgerTotals(req.organizationId, entry.ledger_date);
     
     res.json({
       success: true,
@@ -260,7 +289,7 @@ const closeDailyLedger = async (req, res) => {
     const { date } = req.params;
     const ledgerDate = new Date(date);
     
-    const dailyLedger = await DailyLedger.findByDate(ledgerDate);
+    const dailyLedger = await findDailyLedger(req.organizationId, ledgerDate);
     if (!dailyLedger) {
       return res.status(404).json({
         success: false,
@@ -276,7 +305,7 @@ const closeDailyLedger = async (req, res) => {
     }
     
     // Update totals before closing
-    await updateDailyLedgerTotals(ledgerDate);
+    await updateDailyLedgerTotals(req.organizationId, ledgerDate);
     
     // Close the ledger
     dailyLedger.is_closed = true;
@@ -305,6 +334,7 @@ const getLedgerSummary = async (req, res) => {
     const end = new Date(endDate);
     
     const ledgers = await DailyLedger.find({
+      organizationId: req.organizationId,
       date: {
         $gte: start,
         $lte: end
@@ -344,8 +374,8 @@ const exportToPDF = async (req, res) => {
     const { date } = req.params;
     const ledgerDate = new Date(date);
     
-    const dailyLedger = await DailyLedger.findByDate(ledgerDate);
-    const entries = await LedgerEntry.findByDate(ledgerDate);
+    const dailyLedger = await findDailyLedger(req.organizationId, ledgerDate);
+    const entries = await findLedgerEntries(req.organizationId, ledgerDate);
     
     if (!dailyLedger) {
       return res.status(404).json({
@@ -363,7 +393,14 @@ const exportToPDF = async (req, res) => {
     doc.pipe(res);
     
     // Add content to PDF
-    doc.fontSize(20).text('Daily Ledger Report', { align: 'center' });
+    doc.fontSize(20).text(
+      req.organization?.legalName || req.organization?.name || 'Company',
+      { align: 'center' }
+    );
+    if (req.organization?.trn) {
+      doc.fontSize(9).text(`TRN: ${req.organization.trn}`, { align: 'center' });
+    }
+    doc.fontSize(14).text('Daily Ledger Report', { align: 'center' });
     doc.moveDown();
     doc.fontSize(14).text(`Date: ${new Date(date).toLocaleDateString()}`);
     doc.moveDown();
@@ -399,11 +436,14 @@ const exportToPDF = async (req, res) => {
 };
 
 // Helper function to update daily ledger totals
-const updateDailyLedgerTotals = async (date) => {
+const updateDailyLedgerTotals = async (organizationId, date) => {
   try {
-    const totals = await LedgerEntry.calculateTotalsByDate(date);
+    const totals = await LedgerEntry.aggregate([
+      { $match: { organizationId, ledger_date: dayRange(date) } },
+      { $group: { _id: { type: '$type', mode: '$mode' }, total: { $sum: '$amount' } } }
+    ]);
     
-    const dailyLedger = await DailyLedger.findByDate(date);
+    const dailyLedger = await findDailyLedger(organizationId, date);
     if (!dailyLedger) return;
     
     // Reset totals
@@ -436,9 +476,9 @@ const updateDailyLedgerTotals = async (date) => {
 };
 
 // Auto-create ledger entry for sales payment
-const createSalesPaymentEntry = async (saleId, paymentAmount, paymentMethod) => {
+const createSalesPaymentEntry = async (organizationId, saleId, paymentAmount, paymentMethod) => {
   try {
-    const sale = await require('./salesController').getSaleByIdHelper(saleId);
+    const sale = await require('./salesController').getSaleByIdHelper(saleId, organizationId);
     if (!sale) {
       console.error('Sale not found for ID:', saleId);
       return;
@@ -448,10 +488,10 @@ const createSalesPaymentEntry = async (saleId, paymentAmount, paymentMethod) => 
     const mode = paymentMethod === 'cash' ? 'cash' : 'bank';
     
     // Check if daily ledger exists for today
-    let dailyLedger = await DailyLedger.findByDate(paymentDate);
+    let dailyLedger = await findDailyLedger(organizationId, paymentDate);
     if (!dailyLedger) {
       // Create daily ledger with zero opening balances
-      dailyLedger = await DailyLedger.createOrUpdate(paymentDate, {
+      dailyLedger = await createOrUpdateLedger(organizationId, paymentDate, {
         opening_cash: 0,
         opening_bank: 0
       });
@@ -459,6 +499,7 @@ const createSalesPaymentEntry = async (saleId, paymentAmount, paymentMethod) => 
     
     // Create ledger entry
     const entry = new LedgerEntry({
+      organizationId,
       ledger_date: paymentDate,
       type: 'receipt',
       mode: mode,
@@ -472,7 +513,7 @@ const createSalesPaymentEntry = async (saleId, paymentAmount, paymentMethod) => 
     await entry.save();
     
     // Update daily ledger totals
-    await updateDailyLedgerTotals(paymentDate);
+    await updateDailyLedgerTotals(organizationId, paymentDate);
     
   } catch (error) {
     console.error('Error creating sales payment entry:', error);

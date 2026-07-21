@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const Organization = require('../models/Organization');
 
 // Middleware to protect routes - verify JWT token
 const protect = async (req, res, next) => {
@@ -40,6 +41,27 @@ const protect = async (req, res, next) => {
       }
 
       req.user = user;
+
+      if (user.role !== 'superadmin') {
+        if (!user.organizationId) {
+          return res.status(403).json({
+            error: 'Organization required',
+            message: 'Your account is not assigned to an organization'
+          });
+        }
+
+        const organization = await Organization.findById(user.organizationId);
+        if (!organization || organization.status !== 'active') {
+          return res.status(403).json({
+            error: 'Organization inactive',
+            message: 'Your organization is inactive or unavailable'
+          });
+        }
+
+        req.organizationId = organization._id;
+        req.organization = organization;
+      }
+
       next();
     } catch (error) {
       return res.status(401).json({ 
@@ -84,9 +106,23 @@ const requireAdmin = authorize('admin');
 // Middleware to check if user is employee or admin
 const requireEmployee = authorize('employee', 'admin');
 
+const requireSuperadmin = authorize('superadmin');
+
+const requireOrganization = (req, res, next) => {
+  if (!req.organizationId || req.user?.role === 'superadmin') {
+    return res.status(403).json({
+      error: 'Tenant access required',
+      message: 'This endpoint is only available to organization users'
+    });
+  }
+  next();
+};
+
 module.exports = {
   protect,
   authorize,
   requireAdmin,
-  requireEmployee
+  requireEmployee,
+  requireSuperadmin,
+  requireOrganization
 }; 

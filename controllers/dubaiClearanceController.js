@@ -22,7 +22,7 @@ const getDubaiClearanceInvoices = async (req, res) => {
     } = req.query;
 
     const skip = (page - 1) * limit;
-    const query = {};
+    const query = { organizationId: req.organizationId };
 
     // Search filter
     if (search) {
@@ -64,8 +64,8 @@ const getDubaiClearanceInvoices = async (req, res) => {
     }
 
     const invoices = await DubaiClearanceInvoice.find(query)
-      .populate('createdBy', 'name')
-      .populate('updatedBy', 'name')
+      .populate({ path: 'createdBy', select: 'name', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name', match: { organizationId: req.organizationId } })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -106,10 +106,11 @@ const createDubaiClearanceInvoice = async (req, res) => {
     const { amount_pkr, conversion_rate, amount_aed, agent, invoice_date, due_date } = req.body;
 
     // Generate invoice number
-    const sequence = await Counter.getNextSequence('dubai_clearance_invoice');
+    const sequence = await Counter.getNextSequence(req.organizationId, 'dubai_clearance_invoice');
     const invoice_number = `DC-${sequence.toString().padStart(4, '0')}`;
 
     const invoice = new DubaiClearanceInvoice({
+      organizationId: req.organizationId,
       invoice_number,
       amount_pkr,
       conversion_rate,
@@ -139,9 +140,9 @@ const createDubaiClearanceInvoice = async (req, res) => {
 // Get single Dubai clearance invoice
 const getDubaiClearanceInvoice = async (req, res) => {
   try {
-    const invoice = await DubaiClearanceInvoice.findById(req.params.id)
-      .populate('createdBy', 'name')
-      .populate('updatedBy', 'name');
+    const invoice = await DubaiClearanceInvoice.findOne({ _id: req.params.id, organizationId: req.organizationId })
+      .populate({ path: 'createdBy', select: 'name', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name', match: { organizationId: req.organizationId } });
 
     if (!invoice) {
       return res.status(404).json({
@@ -177,8 +178,8 @@ const updateDubaiClearanceInvoice = async (req, res) => {
 
     const { amount_pkr, conversion_rate, amount_aed, agent, invoice_date, due_date } = req.body;
 
-    const invoice = await DubaiClearanceInvoice.findByIdAndUpdate(
-      req.params.id,
+    const invoice = await DubaiClearanceInvoice.findOneAndUpdate(
+      { _id: req.params.id, organizationId: req.organizationId },
       {
         amount_pkr,
         conversion_rate,
@@ -189,7 +190,7 @@ const updateDubaiClearanceInvoice = async (req, res) => {
         updatedBy: req.user._id
       },
       { new: true, runValidators: true }
-    ).populate('createdBy', 'name').populate('updatedBy', 'name');
+    ).populate({ path: 'createdBy', select: 'name', match: { organizationId: req.organizationId } }).populate({ path: 'updatedBy', select: 'name', match: { organizationId: req.organizationId } });
 
     if (!invoice) {
       return res.status(404).json({
@@ -215,7 +216,7 @@ const updateDubaiClearanceInvoice = async (req, res) => {
 // Delete Dubai clearance invoice
 const deleteDubaiClearanceInvoice = async (req, res) => {
   try {
-    const invoice = await DubaiClearanceInvoice.findByIdAndDelete(req.params.id);
+    const invoice = await DubaiClearanceInvoice.findOneAndDelete({ _id: req.params.id, organizationId: req.organizationId });
 
     if (!invoice) {
       return res.status(404).json({
@@ -225,7 +226,7 @@ const deleteDubaiClearanceInvoice = async (req, res) => {
     }
 
     // Delete associated payments
-    await DubaiClearancePayment.deleteMany({ invoiceId: req.params.id });
+    await DubaiClearancePayment.deleteMany({ invoiceId: req.params.id, organizationId: req.organizationId });
 
     res.json({
       success: true,
@@ -252,7 +253,7 @@ const addDubaiClearancePayment = async (req, res) => {
       });
     }
 
-    const invoice = await DubaiClearanceInvoice.findById(req.params.id);
+    const invoice = await DubaiClearanceInvoice.findOne({ _id: req.params.id, organizationId: req.organizationId });
     if (!invoice) {
       return res.status(404).json({
         success: false,
@@ -284,7 +285,7 @@ const addDubaiClearancePayment = async (req, res) => {
 // Get payment history for Dubai clearance invoice
 const getDubaiClearancePaymentHistory = async (req, res) => {
   try {
-    const invoice = await DubaiClearanceInvoice.findById(req.params.id);
+    const invoice = await DubaiClearanceInvoice.findOne({ _id: req.params.id, organizationId: req.organizationId });
     if (!invoice) {
       return res.status(404).json({
         success: false,
@@ -292,7 +293,9 @@ const getDubaiClearancePaymentHistory = async (req, res) => {
       });
     }
 
-    const payments = await invoice.getPaymentHistory();
+    const payments = await DubaiClearancePayment.find({ invoiceId: req.params.id, organizationId: req.organizationId })
+      .populate({ path: 'receivedBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .sort({ paymentDate: -1 });
 
     res.json({
       success: true,
@@ -310,14 +313,17 @@ const getDubaiClearancePaymentHistory = async (req, res) => {
 // Get Dubai clearance invoice statistics
 const getDubaiClearanceInvoiceStats = async (req, res) => {
   try {
-    const totalInvoices = await DubaiClearanceInvoice.countDocuments();
+    const totalInvoices = await DubaiClearanceInvoice.countDocuments({ organizationId: req.organizationId });
     const totalAmountAED = await DubaiClearanceInvoice.aggregate([
+      { $match: { organizationId: req.organizationId } },
       { $group: { _id: null, total: { $sum: '$amount_aed' } } }
     ]);
     const paidAmountAED = await DubaiClearanceInvoice.aggregate([
+      { $match: { organizationId: req.organizationId } },
       { $group: { _id: null, total: { $sum: '$paid_amount_aed' } } }
     ]);
     const outstandingAmountAED = await DubaiClearanceInvoice.aggregate([
+      { $match: { organizationId: req.organizationId } },
       { $group: { _id: null, total: { $sum: '$outstanding_amount_aed' } } }
     ]);
 
@@ -342,9 +348,9 @@ const getDubaiClearanceInvoiceStats = async (req, res) => {
 // Print Dubai clearance invoice
 const printDubaiClearanceInvoice = async (req, res) => {
   try {
-    const invoice = await DubaiClearanceInvoice.findById(req.params.id)
-      .populate('createdBy', 'name')
-      .populate('updatedBy', 'name');
+    const invoice = await DubaiClearanceInvoice.findOne({ _id: req.params.id, organizationId: req.organizationId })
+      .populate({ path: 'createdBy', select: 'name', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name', match: { organizationId: req.organizationId } });
 
     if (!invoice) {
       return res.status(404).json({
@@ -353,7 +359,7 @@ const printDubaiClearanceInvoice = async (req, res) => {
       });
     }
 
-    const pdfGenerator = new PDFGenerator();
+    const pdfGenerator = new PDFGenerator(req.organization);
     pdfGenerator.generateDubaiClearanceInvoice(res, invoice);
   } catch (error) {
     console.error('Error printing Dubai clearance invoice:', error);
@@ -380,7 +386,7 @@ const generateDubaiClearanceReportPDF = async (req, res) => {
       includePayments = 'true'
     } = req.query;
 
-    const query = {};
+    const query = { organizationId: req.organizationId };
 
     // Apply filters
     if (startDate || endDate) {
@@ -410,13 +416,15 @@ const generateDubaiClearanceReportPDF = async (req, res) => {
     }
 
     let invoices = await DubaiClearanceInvoice.find(query)
-      .populate('createdBy', 'name')
-      .populate('updatedBy', 'name')
+      .populate({ path: 'createdBy', select: 'name', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name', match: { organizationId: req.organizationId } })
       .sort({ createdAt: -1 });
 
     if (includePayments === 'true') {
       for (let invoice of invoices) {
-        invoice.payments = await invoice.getPaymentHistory();
+        invoice.payments = await DubaiClearancePayment.find({ invoiceId: invoice._id, organizationId: req.organizationId })
+          .populate({ path: 'receivedBy', select: 'name email', match: { organizationId: req.organizationId } })
+          .sort({ paymentDate: -1 });
       }
     }
 
@@ -433,7 +441,7 @@ const generateDubaiClearanceReportPDF = async (req, res) => {
       includePayments: includePayments === 'true'
     };
 
-    const pdfGenerator = new PDFGenerator();
+    const pdfGenerator = new PDFGenerator(req.organization);
     pdfGenerator.generateDubaiClearanceReport(res, invoices, options);
   } catch (error) {
     console.error('Error generating Dubai clearance report PDF:', error);
@@ -460,7 +468,7 @@ const generateDubaiClearanceReportCSV = async (req, res) => {
       includePayments = 'true'
     } = req.query;
 
-    const query = {};
+    const query = { organizationId: req.organizationId };
 
     // Apply filters
     if (startDate || endDate) {
@@ -490,13 +498,15 @@ const generateDubaiClearanceReportCSV = async (req, res) => {
     }
 
     let invoices = await DubaiClearanceInvoice.find(query)
-      .populate('createdBy', 'name')
-      .populate('updatedBy', 'name')
+      .populate({ path: 'createdBy', select: 'name', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name', match: { organizationId: req.organizationId } })
       .sort({ createdAt: -1 });
 
     if (includePayments === 'true') {
       for (let invoice of invoices) {
-        invoice.payments = await invoice.getPaymentHistory();
+        invoice.payments = await DubaiClearancePayment.find({ invoiceId: invoice._id, organizationId: req.organizationId })
+          .populate({ path: 'receivedBy', select: 'name email', match: { organizationId: req.organizationId } })
+          .sort({ paymentDate: -1 });
       }
     }
 
@@ -513,7 +523,7 @@ const generateDubaiClearanceReportCSV = async (req, res) => {
       includePayments: includePayments === 'true'
     };
 
-    const pdfGenerator = new PDFGenerator();
+    const pdfGenerator = new PDFGenerator(req.organization);
     pdfGenerator.generateDubaiClearanceReportCSV(res, invoices, options);
   } catch (error) {
     console.error('Error generating Dubai clearance report CSV:', error);

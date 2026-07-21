@@ -1,10 +1,14 @@
 const mongoose = require('mongoose');
 
 const dubaiClearanceInvoiceSchema = new mongoose.Schema({
+  organizationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
+    required: [true, 'Organization ID is required']
+  },
   invoice_number: {
     type: String,
     required: true,
-    unique: true,
     trim: true
   },
   amount_aed: {
@@ -70,7 +74,8 @@ const dubaiClearanceInvoiceSchema = new mongoose.Schema({
 dubaiClearanceInvoiceSchema.virtual('payments', {
   ref: 'DubaiClearancePayment',
   localField: '_id',
-  foreignField: 'invoiceId'
+  foreignField: 'invoiceId',
+  match: invoice => ({ organizationId: invoice.organizationId })
 });
 
 // Virtual for PKR amounts (calculated on-the-fly)
@@ -139,6 +144,7 @@ dubaiClearanceInvoiceSchema.methods.addPayment = async function(paymentData) {
   const DubaiClearancePayment = mongoose.model('DubaiClearancePayment');
   
   const payment = new DubaiClearancePayment({
+    organizationId: this.organizationId,
     invoiceId: this._id,
     amount: paymentData.amount_aed,
     paymentType: paymentData.paymentType,
@@ -174,15 +180,18 @@ dubaiClearanceInvoiceSchema.methods.addPayment = async function(paymentData) {
 // Instance method to get payment history
 dubaiClearanceInvoiceSchema.methods.getPaymentHistory = async function() {
   const DubaiClearancePayment = mongoose.model('DubaiClearancePayment');
-  return await DubaiClearancePayment.find({ invoiceId: this._id }).populate('receivedBy', 'name');
+  return await DubaiClearancePayment.find({
+    invoiceId: this._id,
+    organizationId: this.organizationId
+  }).populate('receivedBy', 'name');
 };
 
 // Indexes for better query performance
-dubaiClearanceInvoiceSchema.index({ invoice_number: 1 });
-dubaiClearanceInvoiceSchema.index({ agent: 1 });
-dubaiClearanceInvoiceSchema.index({ status: 1 });
-dubaiClearanceInvoiceSchema.index({ invoice_date: 1 });
-dubaiClearanceInvoiceSchema.index({ due_date: 1 });
-dubaiClearanceInvoiceSchema.index({ createdBy: 1 });
+dubaiClearanceInvoiceSchema.index({ organizationId: 1, invoice_number: 1 }, { unique: true });
+dubaiClearanceInvoiceSchema.index({ organizationId: 1, agent: 1 });
+dubaiClearanceInvoiceSchema.index({ organizationId: 1, status: 1 });
+dubaiClearanceInvoiceSchema.index({ organizationId: 1, invoice_date: 1 });
+dubaiClearanceInvoiceSchema.index({ organizationId: 1, due_date: 1 });
+dubaiClearanceInvoiceSchema.index({ organizationId: 1, createdBy: 1 });
 
 module.exports = mongoose.model('DubaiClearanceInvoice', dubaiClearanceInvoiceSchema);

@@ -37,6 +37,7 @@ const prepareProductFilters = (rawProduct, rawProducts) => {
 };
 
 const buildCustomerOutstandingPipeline = ({
+  organizationId,
   search = '',
   minAmount = '',
   maxAmount = '',
@@ -51,6 +52,7 @@ const buildCustomerOutstandingPipeline = ({
   const pipeline = [
     {
       $match: {
+        organizationId,
         outstandingAmount: { $gt: 0 }
       }
     },
@@ -119,14 +121,19 @@ const buildCustomerOutstandingPipeline = ({
     pipeline.push({
       $lookup: {
         from: 'products',
-        let: { productName: '$product' },
+        let: { productName: '$product', organizationId: '$organizationId' },
         pipeline: [
           {
             $match: {
               $expr: {
-                $eq: [
-                  { $toLower: { $trim: { input: '$name' } } },
-                  { $toLower: { $trim: { input: '$$productName' } } }
+                $and: [
+                  { $eq: ['$organizationId', '$$organizationId'] },
+                  {
+                    $eq: [
+                      { $toLower: { $trim: { input: '$name' } } },
+                      { $toLower: { $trim: { input: '$$productName' } } }
+                    ]
+                  }
                 ]
               },
               isActive: true
@@ -135,8 +142,20 @@ const buildCustomerOutstandingPipeline = ({
           {
             $lookup: {
               from: 'categories',
-              localField: 'category',
-              foreignField: '_id',
+              let: {
+                categoryId: '$category',
+                organizationId: '$organizationId'
+              },
+              pipeline: [{
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ['$_id', '$$categoryId'] },
+                      { $eq: ['$organizationId', '$$organizationId'] }
+                    ]
+                  }
+                }
+              }],
               as: 'categoryInfo'
             }
           },
@@ -467,7 +486,7 @@ const createSale = async (req, res) => {
 
     // Enforce TRN for VAT sales
     if (Number(vatPercentage) > 0) {
-      const customerDoc = await Customer.findOne({ ename: { $regex: new RegExp(`^${customer}$`, 'i') } });
+      const customerDoc = await Customer.findOne({ organizationId: req.organizationId, ename: { $regex: new RegExp(`^${customer}$`, 'i') } });
       if (!customerDoc || !customerDoc.trn || customerDoc.trn.trim() === '') {
         return res.status(400).json({
           error: 'Customer TRN required',
@@ -483,7 +502,7 @@ const createSale = async (req, res) => {
       finalInvoiceNumber = invoiceNumber.trim();
       
       // Check if the provided invoice number already exists
-      const existingSale = await Sales.findOne({ invoiceNumber: finalInvoiceNumber });
+      const existingSale = await Sales.findOne({ invoiceNumber: finalInvoiceNumber, organizationId: req.organizationId });
       if (existingSale) {
         return res.status(400).json({
           error: 'Invoice number already exists',
@@ -492,12 +511,13 @@ const createSale = async (req, res) => {
       }
     } else {
       // Auto-generate invoice number
-      const nextSequence = await Counter.getNextSequence('invoiceNumber');
+      const nextSequence = await Counter.getNextSequence(req.organizationId, 'invoiceNumber');
       finalInvoiceNumber = `INV-${String(nextSequence).padStart(6, '0')}`;
     }
 
     // Create new sale
     const newSale = new Sales({
+      organizationId: req.organizationId,
       customer,
       containerNo,
       supplier,
@@ -564,7 +584,7 @@ const getSales = async (req, res) => {
     } = req.query;
 
     // Build query
-    const query = {};
+    const query = { organizationId: req.organizationId };
 
     // Search functionality
     if (search) {
@@ -712,8 +732,8 @@ const getSales = async (req, res) => {
       .sort(sortOptions)
       .limit(limit * 1)
       .skip((page - 1) * limit)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
 
     // Get total count
     const total = await Sales.countDocuments(query);
@@ -746,6 +766,7 @@ const getSales = async (req, res) => {
 
     // Get overall statistics (all sales ever created)
     const overallStats = await Sales.aggregate([
+      { $match: { organizationId: req.organizationId } },
       {
         $group: {
           _id: null,
@@ -833,21 +854,23 @@ const getSales = async (req, res) => {
 };
 
 // Helper function to get sale by ID (can be called directly)
-const getSaleByIdHelper = async (saleId) => {
+const getSaleByIdHelper = async (saleId, organizationId) => {
   try {
     if (!saleId || !saleId.match(/^[0-9a-fA-F]{24}$/)) {
       console.log('Invalid sale ID format:', saleId);
       return null;
     }
 
-    const sale = await Sales.findById(saleId)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email')
+    const sale = await Sales.findOne({ _id: saleId, organizationId })
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId } })
       .populate({
         path: 'payments',
+        match: { organizationId },
         populate: {
           path: 'receivedBy',
-          select: 'name email'
+          select: 'name email',
+          match: { organizationId }
         }
       });
 
@@ -877,7 +900,7 @@ const getSaleById = async (req, res) => {
       });
     }
 
-    const sale = await getSaleByIdHelper(req.params.id);
+    const sale = await getSaleByIdHelper(req.params.id, req.organizationId);
 
     if (!sale) {
       return res.status(404).json({
@@ -938,7 +961,7 @@ const updateSale = async (req, res) => {
 
     // Enforce TRN for VAT sales
     if (Number(vatPercentage) > 0) {
-      const customerDoc = await Customer.findOne({ ename: { $regex: new RegExp(`^${customer}$`, 'i') } });
+      const customerDoc = await Customer.findOne({ organizationId: req.organizationId, ename: { $regex: new RegExp(`^${customer}$`, 'i') } });
       if (!customerDoc || !customerDoc.trn || customerDoc.trn.trim() === '') {
         return res.status(400).json({
           error: 'Customer TRN required',
@@ -947,7 +970,7 @@ const updateSale = async (req, res) => {
       }
     }
 
-    const sale = await Sales.findById(req.params.id);
+    const sale = await Sales.findOne({ _id: req.params.id, organizationId: req.organizationId });
 
     if (!sale) {
       return res.status(404).json({
@@ -960,6 +983,7 @@ const updateSale = async (req, res) => {
     if (invoiceNumber && invoiceNumber.trim() !== '' && invoiceNumber !== sale.invoiceNumber) {
       const existingSale = await Sales.findOne({ 
         invoiceNumber: invoiceNumber.trim(),
+        organizationId: req.organizationId,
         _id: { $ne: req.params.id } // Exclude current sale from check
       });
       
@@ -1031,7 +1055,7 @@ const addPayment = async (req, res) => {
       discount = 0
     } = req.body;
 
-    const sale = await Sales.findById(req.params.id);
+    const sale = await Sales.findOne({ _id: req.params.id, organizationId: req.organizationId });
 
     if (!sale) {
       return res.status(404).json({
@@ -1077,17 +1101,19 @@ const addPayment = async (req, res) => {
     });
 
     // Create a new payment entry in the daily ledger
-    await createSalesPaymentEntry(req.params.id, amount, paymentMethod);
+    await createSalesPaymentEntry(req.organizationId, req.params.id, amount, paymentMethod);
 
     // Get updated sale with payment history
-    const updatedSale = await Sales.findById(req.params.id)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email')
+    const updatedSale = await Sales.findOne({ _id: req.params.id, organizationId: req.organizationId })
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } })
       .populate({
         path: 'payments',
+        match: { organizationId: req.organizationId },
         populate: {
           path: 'receivedBy',
-          select: 'name email'
+          select: 'name email',
+          match: { organizationId: req.organizationId }
         }
       });
 
@@ -1120,7 +1146,7 @@ const getPaymentHistory = async (req, res) => {
       });
     }
 
-    const sale = await Sales.findById(req.params.id);
+    const sale = await Sales.findOne({ _id: req.params.id, organizationId: req.organizationId });
 
     if (!sale) {
       return res.status(404).json({
@@ -1129,8 +1155,8 @@ const getPaymentHistory = async (req, res) => {
       });
     }
 
-    const payments = await Payment.find({ saleId: req.params.id })
-      .populate('receivedBy', 'name email')
+    const payments = await Payment.find({ saleId: req.params.id, organizationId: req.organizationId })
+      .populate({ path: 'receivedBy', select: 'name email', match: { organizationId: req.organizationId } })
       .sort({ paymentDate: -1 });
 
     const paymentSummary = await sale.getPaymentSummary();
@@ -1182,7 +1208,7 @@ const deletePayment = async (req, res) => {
 
     // Verify admin password
     const User = require('../models/User');
-    const user = await User.findById(req.user.id).select('+password');
+    const user = await User.findOne({ _id: req.user.id, organizationId: req.organizationId }).select('+password');
     
     if (!user) {
       return res.status(404).json({
@@ -1200,7 +1226,7 @@ const deletePayment = async (req, res) => {
     }
 
     // Find the sale and payment
-    const sale = await Sales.findById(req.params.saleId);
+    const sale = await Sales.findOne({ _id: req.params.saleId, organizationId: req.organizationId });
     if (!sale) {
       return res.status(404).json({
         error: 'Sale not found',
@@ -1208,7 +1234,7 @@ const deletePayment = async (req, res) => {
       });
     }
 
-    const payment = await Payment.findById(req.params.paymentId);
+    const payment = await Payment.findOne({ _id: req.params.paymentId, organizationId: req.organizationId });
     if (!payment) {
       return res.status(404).json({
         error: 'Payment not found',
@@ -1225,10 +1251,10 @@ const deletePayment = async (req, res) => {
     }
 
     // Delete the payment
-    await Payment.findByIdAndDelete(req.params.paymentId);
+    await Payment.deleteOne({ _id: req.params.paymentId, organizationId: req.organizationId });
 
     // Recalculate sale amounts
-    const remainingPayments = await Payment.find({ saleId: req.params.saleId });
+    const remainingPayments = await Payment.find({ saleId: req.params.saleId, organizationId: req.organizationId });
     const totalReceived = remainingPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
     const totalDiscount = remainingPayments.reduce((sum, p) => sum + (p.discount || 0), 0);
     
@@ -1262,8 +1288,8 @@ const deletePayment = async (req, res) => {
     await sale.save();
 
     // Get updated payment history
-    const updatedPayments = await Payment.find({ saleId: req.params.saleId })
-      .populate('receivedBy', 'name email')
+    const updatedPayments = await Payment.find({ saleId: req.params.saleId, organizationId: req.organizationId })
+      .populate({ path: 'receivedBy', select: 'name email', match: { organizationId: req.organizationId } })
       .sort({ paymentDate: -1 });
 
     const paymentSummary = await sale.getPaymentSummary();
@@ -1323,7 +1349,7 @@ const deleteSale = async (req, res) => {
 
     // Verify admin password
     const User = require('../models/User');
-    const user = await User.findById(req.user.id).select('+password');
+    const user = await User.findOne({ _id: req.user.id, organizationId: req.organizationId }).select('+password');
     
     if (!user) {
       return res.status(404).json({
@@ -1340,7 +1366,7 @@ const deleteSale = async (req, res) => {
       });
     }
 
-    const sale = await Sales.findById(req.params.id);
+    const sale = await Sales.findOne({ _id: req.params.id, organizationId: req.organizationId });
 
     if (!sale) {
       return res.status(404).json({
@@ -1350,10 +1376,10 @@ const deleteSale = async (req, res) => {
     }
 
     // Delete associated payments first
-    await Payment.deleteMany({ saleId: req.params.id });
+    await Payment.deleteMany({ saleId: req.params.id, organizationId: req.organizationId });
 
     // Delete the sale
-    await Sales.findByIdAndDelete(req.params.id);
+    await Sales.deleteOne({ _id: req.params.id, organizationId: req.organizationId });
 
     res.json({
       success: true,
@@ -1374,7 +1400,7 @@ const deleteSale = async (req, res) => {
 // @access  Private (Admin/Employee)
 const getSalesStatistics = async (req, res) => {
   try {
-    const stats = await Sales.getStatistics();
+    const stats = await Sales.getStatistics(req.organizationId);
 
     res.json({
       success: true,
@@ -1410,7 +1436,7 @@ const generateSalesReport = async (req, res) => {
     } = req.query;
 
     // Build query
-    const query = {};
+    const query = { organizationId: req.organizationId };
 
     if (startDate || endDate) {
       query.invoiceDate = {};
@@ -1450,14 +1476,14 @@ const generateSalesReport = async (req, res) => {
     // Get sales data
     const sales = await Sales.find(query)
       .sort({ invoiceDate: -1 })
-      .populate('createdBy', 'name email');
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } });
 
     // Get payment data if requested
     let payments = [];
     if (includePayments === 'true') {
       const saleIds = sales.map(sale => sale._id);
-      payments = await Payment.find({ saleId: { $in: saleIds } })
-        .populate('receivedBy', 'name email')
+      payments = await Payment.find({ saleId: { $in: saleIds }, organizationId: req.organizationId })
+        .populate({ path: 'receivedBy', select: 'name email', match: { organizationId: req.organizationId } })
         .sort({ paymentDate: -1 });
     }
 
@@ -1636,7 +1662,7 @@ const generateSalesReport = async (req, res) => {
       return res.send(csvContent);
     } else if (format === 'pdf') {
       // Use the improved PDF generator
-      const pdfGenerator = new PDFGenerator();
+      const pdfGenerator = new PDFGenerator(req.organization);
       pdfGenerator.generateSalesReport(res, report, {
         startDate,
         endDate,
@@ -1682,6 +1708,7 @@ const getMonthlyStatistics = async (req, res) => {
     const monthlyStats = await Sales.aggregate([
       {
         $match: {
+          organizationId: req.organizationId,
           invoiceDate: {
             $gte: startOfMonth,
             $lte: endOfMonth
@@ -1750,23 +1777,22 @@ const printInvoice = async (req, res) => {
     if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({ error: 'Invalid sale ID' });
     }
-    const sale = await Sales.findById(req.params.id);
+    const sale = await Sales.findOne({ _id: req.params.id, organizationId: req.organizationId });
     if (!sale) return res.status(404).json({ error: 'Sale not found' });
 
     // Resolve customer TRN if VAT present
     const vatPct = Number(sale.vatPercentage || 0);
     let customerTRN = '';
     if (vatPct > 0) {
-      const customer = await Customer.findOne({ ename: { $regex: new RegExp(`^${sale.customer}$`, 'i') } });
+      const customer = await Customer.findOne({ organizationId: req.organizationId, ename: { $regex: new RegExp(`^${sale.customer}$`, 'i') } });
       customerTRN = customer?.trn || '';
     }
 
-    const pdf = new PDFGenerator();
+    const pdf = new PDFGenerator(req.organization);
     const saleData = sale.toObject();
     saleData.customerTRN = customerTRN;
 
-    // Prefer logged-in user's TRN if provided in headers (frontend can pass), fallback to env
-    const companyTRN = req.user?.trn || process.env.COMPANY_TRN || '';
+    const companyTRN = req.organization?.branding?.trn || req.organization?.trn || '';
     pdf.generateInvoiceA5(res, saleData, { companyTRN });
   } catch (error) {
     console.error('Print invoice error:', error);
@@ -1801,7 +1827,7 @@ const getCustomerOutstanding = async (req, res) => {
       const mongoose = require('mongoose');
       
       // Build query for products
-      const productQuery = { isActive: true };
+      const productQuery = { isActive: true, organizationId: req.organizationId };
       if (categoryFilters.length > 0) {
         const categoryObjectIds = categoryFilters.map(id => {
           try {
@@ -1814,7 +1840,7 @@ const getCustomerOutstanding = async (req, res) => {
       }
       
       // Fetch products with their categories
-      const products = await Product.find(productQuery).populate('category', 'name');
+      const products = await Product.find(productQuery).populate({ path: 'category', select: 'name', match: { organizationId: req.organizationId } });
       
       // Get list of product names (exact names as stored in Products collection)
       categoryProductNames = products.map(product => product.name);
@@ -1825,6 +1851,7 @@ const getCustomerOutstanding = async (req, res) => {
     }
 
     const basePipeline = buildCustomerOutstandingPipeline({
+      organizationId: req.organizationId,
       search,
       minAmount,
       maxAmount,
@@ -1929,7 +1956,7 @@ const generateCustomerOutstandingPDF = async (req, res) => {
     if (groupBy === 'category') {
       const mongoose = require('mongoose');
       
-      const productQuery = { isActive: true };
+      const productQuery = { isActive: true, organizationId: req.organizationId };
       if (categoryFilters.length > 0) {
         const categoryObjectIds = categoryFilters.map(id => {
           try {
@@ -1941,11 +1968,12 @@ const generateCustomerOutstandingPDF = async (req, res) => {
         productQuery.category = { $in: categoryObjectIds };
       }
       
-      const products = await Product.find(productQuery).populate('category', 'name');
+      const products = await Product.find(productQuery).populate({ path: 'category', select: 'name', match: { organizationId: req.organizationId } });
       categoryProductNames = products.map(product => product.name);
     }
 
     const pipeline = buildCustomerOutstandingPipeline({
+      organizationId: req.organizationId,
       search,
       minAmount,
       maxAmount,
@@ -1960,7 +1988,7 @@ const generateCustomerOutstandingPDF = async (req, res) => {
 
     const customerOutstanding = await Sales.aggregate(pipeline);
 
-    const pdf = new PDFGenerator();
+    const pdf = new PDFGenerator(req.organization);
     pdf.generateCustomerOutstandingReport(res, customerOutstanding, { groupBy });
 
   } catch (error) {
@@ -1980,6 +2008,7 @@ const getUniqueProducts = async (req, res) => {
     const { customer = '', scope = 'outstanding' } = req.query;
 
     const query = {
+      organizationId: req.organizationId,
       product: { $exists: true, $ne: null, $ne: '' }
     };
 
@@ -2039,6 +2068,7 @@ const getAutocompleteSuggestions = async (req, res) => {
 
     // Get unique values for the specified field
     const suggestions = await Sales.distinct(field, {
+      organizationId: req.organizationId,
       [field]: { $exists: true, $ne: null, $ne: '' }
     });
 
@@ -2073,10 +2103,11 @@ const getRecentPayments = async (req, res) => {
     startDate.setDate(startDate.getDate() - parseInt(days));
     
     const payments = await Payment.find({
-      paymentDate: { $gte: startDate }
+      paymentDate: { $gte: startDate },
+      organizationId: req.organizationId
     })
-    .populate('saleId', 'invoiceNumber customer amount')
-    .populate('receivedBy', 'name email')
+    .populate({ path: 'saleId', select: 'invoiceNumber customer amount', match: { organizationId: req.organizationId } })
+    .populate({ path: 'receivedBy', select: 'name email', match: { organizationId: req.organizationId } })
     .sort({ paymentDate: -1 })
     .limit(parseInt(limit));
 

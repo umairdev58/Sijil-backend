@@ -1,10 +1,14 @@
 const mongoose = require('mongoose');
 
 const dubaiTransportInvoiceSchema = new mongoose.Schema({
+  organizationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
+    required: [true, 'Organization ID is required']
+  },
   invoice_number: {
     type: String,
     required: true,
-    unique: true,
     trim: true
   },
   description: {
@@ -68,7 +72,8 @@ const dubaiTransportInvoiceSchema = new mongoose.Schema({
 dubaiTransportInvoiceSchema.virtual('payments', {
   ref: 'DubaiTransportPayment',
   localField: '_id',
-  foreignField: 'invoiceId'
+  foreignField: 'invoiceId',
+  match: invoice => ({ organizationId: invoice.organizationId })
 });
 
 dubaiTransportInvoiceSchema.pre('save', function(next) {
@@ -114,6 +119,7 @@ dubaiTransportInvoiceSchema.methods.addPayment = async function(paymentData) {
   const DubaiTransportPayment = mongoose.model('DubaiTransportPayment');
 
   const payment = new DubaiTransportPayment({
+    organizationId: this.organizationId,
     invoiceId: this._id,
     amount: paymentData.amount_aed,
     paymentType: paymentData.paymentType,
@@ -146,14 +152,17 @@ dubaiTransportInvoiceSchema.methods.addPayment = async function(paymentData) {
 
 dubaiTransportInvoiceSchema.methods.getPaymentHistory = async function() {
   const DubaiTransportPayment = mongoose.model('DubaiTransportPayment');
-  return await DubaiTransportPayment.find({ invoiceId: this._id }).populate('receivedBy', 'name');
+  return await DubaiTransportPayment.find({
+    invoiceId: this._id,
+    organizationId: this.organizationId
+  }).populate('receivedBy', 'name');
 };
 
-dubaiTransportInvoiceSchema.index({ invoice_number: 1 });
-dubaiTransportInvoiceSchema.index({ container_number: 1 });
-dubaiTransportInvoiceSchema.index({ status: 1 });
-dubaiTransportInvoiceSchema.index({ invoice_date: 1 });
-dubaiTransportInvoiceSchema.index({ due_date: 1 });
-dubaiTransportInvoiceSchema.index({ createdBy: 1 });
+dubaiTransportInvoiceSchema.index({ organizationId: 1, invoice_number: 1 }, { unique: true });
+dubaiTransportInvoiceSchema.index({ organizationId: 1, container_number: 1 });
+dubaiTransportInvoiceSchema.index({ organizationId: 1, status: 1 });
+dubaiTransportInvoiceSchema.index({ organizationId: 1, invoice_date: 1 });
+dubaiTransportInvoiceSchema.index({ organizationId: 1, due_date: 1 });
+dubaiTransportInvoiceSchema.index({ organizationId: 1, createdBy: 1 });
 
 module.exports = mongoose.model('DubaiTransportInvoice', dubaiTransportInvoiceSchema);

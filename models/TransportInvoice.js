@@ -1,10 +1,14 @@
 const mongoose = require('mongoose');
 
 const transportInvoiceSchema = new mongoose.Schema({
+  organizationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
+    required: [true, 'Organization ID is required']
+  },
   invoice_number: {
     type: String,
     required: true,
-    unique: true,
     trim: true
   },
   amount_pkr: {
@@ -85,16 +89,17 @@ const transportInvoiceSchema = new mongoose.Schema({
 transportInvoiceSchema.virtual('payments', {
   ref: 'TransportPayment',
   localField: '_id',
-  foreignField: 'transportInvoiceId'
+  foreignField: 'transportInvoiceId',
+  match: invoice => ({ organizationId: invoice.organizationId })
 });
 
 // Indexes
-transportInvoiceSchema.index({ invoice_number: 1 }, { unique: true });
-transportInvoiceSchema.index({ invoice_date: -1 });
-transportInvoiceSchema.index({ agent: 1 });
-transportInvoiceSchema.index({ status: 1 });
-transportInvoiceSchema.index({ due_date: 1 });
-transportInvoiceSchema.index({ last_payment_date: 1 });
+transportInvoiceSchema.index({ organizationId: 1, invoice_number: 1 }, { unique: true });
+transportInvoiceSchema.index({ organizationId: 1, invoice_date: -1 });
+transportInvoiceSchema.index({ organizationId: 1, agent: 1 });
+transportInvoiceSchema.index({ organizationId: 1, status: 1 });
+transportInvoiceSchema.index({ organizationId: 1, due_date: 1 });
+transportInvoiceSchema.index({ organizationId: 1, last_payment_date: 1 });
 
 // Pre-save middleware to auto-calculate amounts and status
 transportInvoiceSchema.pre('save', function(next) {
@@ -165,6 +170,7 @@ transportInvoiceSchema.methods.addPayment = async function(paymentData) {
   
   // Create new payment record
   const payment = new TransportPayment({
+    organizationId: this.organizationId,
     transportInvoiceId: this._id,
     amount: paymentData.amount,
     receivedBy: paymentData.receivedBy,
@@ -203,7 +209,10 @@ transportInvoiceSchema.methods.addPayment = async function(paymentData) {
 // Instance method to get payment history
 transportInvoiceSchema.methods.getPaymentHistory = async function() {
   const TransportPayment = require('./TransportPayment');
-  return await TransportPayment.find({ transportInvoiceId: this._id })
+  return await TransportPayment.find({
+    transportInvoiceId: this._id,
+    organizationId: this.organizationId
+  })
     .populate('receivedBy', 'name email')
     .sort({ paymentDate: -1 });
 };

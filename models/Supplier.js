@@ -1,6 +1,11 @@
 const mongoose = require('mongoose');
 
 const supplierSchema = new mongoose.Schema({
+  organizationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
+    required: [true, 'Organization ID is required']
+  },
   ename: {
     type: String,
     required: [true, 'English name is required'],
@@ -48,12 +53,12 @@ const supplierSchema = new mongoose.Schema({
 });
 
 // Indexes for better query performance
-supplierSchema.index({ ename: 1 });
-supplierSchema.index({ uname: 1 });
-supplierSchema.index({ email: 1 });
-supplierSchema.index({ number: 1 });
-supplierSchema.index({ marka: 1 });
-supplierSchema.index({ isActive: 1 });
+supplierSchema.index({ organizationId: 1, ename: 1 });
+supplierSchema.index({ organizationId: 1, uname: 1 });
+supplierSchema.index({ organizationId: 1, email: 1 });
+supplierSchema.index({ organizationId: 1, number: 1 });
+supplierSchema.index({ organizationId: 1, marka: 1 });
+supplierSchema.index({ organizationId: 1, isActive: 1 });
 
 // Virtual for full name (English + Urdu)
 supplierSchema.virtual('fullName').get(function() {
@@ -80,8 +85,10 @@ supplierSchema.statics.findByName = function(name) {
 };
 
 // Static method to get supplier statistics
-supplierSchema.statics.getStatistics = async function() {
+supplierSchema.statics.getStatistics = async function(organizationId) {
+  if (!organizationId) throw new Error('organizationId is required for supplier statistics');
   const stats = await this.aggregate([
+    { $match: { organizationId: new mongoose.Types.ObjectId(organizationId) } },
     {
       $group: {
         _id: null,

@@ -1,6 +1,11 @@
 const mongoose = require('mongoose');
 
 const customerSchema = new mongoose.Schema({
+  organizationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
+    required: [true, 'Organization ID is required']
+  },
   ename: {
     type: String,
     required: [true, 'English name is required'],
@@ -47,12 +52,12 @@ const customerSchema = new mongoose.Schema({
 });
 
 // Indexes for better query performance
-customerSchema.index({ ename: 1 });
-customerSchema.index({ uname: 1 });
-customerSchema.index({ email: 1 });
-customerSchema.index({ trn: 1 });
-customerSchema.index({ number: 1 });
-customerSchema.index({ isActive: 1 });
+customerSchema.index({ organizationId: 1, ename: 1 });
+customerSchema.index({ organizationId: 1, uname: 1 });
+customerSchema.index({ organizationId: 1, email: 1 });
+customerSchema.index({ organizationId: 1, trn: 1 });
+customerSchema.index({ organizationId: 1, number: 1 });
+customerSchema.index({ organizationId: 1, isActive: 1 });
 
 // Virtual for full name (English + Urdu)
 customerSchema.virtual('fullName').get(function() {
@@ -79,8 +84,10 @@ customerSchema.statics.findByName = function(name) {
 };
 
 // Static method to get customer statistics
-customerSchema.statics.getStatistics = async function() {
+customerSchema.statics.getStatistics = async function(organizationId) {
+  if (!organizationId) throw new Error('organizationId is required for customer statistics');
   const stats = await this.aggregate([
+    { $match: { organizationId: new mongoose.Types.ObjectId(organizationId) } },
     {
       $group: {
         _id: null,

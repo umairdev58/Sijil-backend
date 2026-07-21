@@ -8,7 +8,7 @@ const createUser = async (req, res) => {
     const { name, email, password, department = '', position = '', role } = req.body;
 
     // Check if user already exists
-    const existingUser = await User.findByEmail(email);
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
     if (existingUser) {
       return res.status(400).json({ 
         error: 'User already exists',
@@ -24,6 +24,7 @@ const createUser = async (req, res) => {
       department,
       position,
       role: role && ['admin', 'employee'].includes(role) ? role : 'employee',
+      organizationId: req.organizationId,
       createdBy: req.user.id
     });
 
@@ -61,7 +62,7 @@ const getUsers = async (req, res) => {
     const { page = 1, limit = 10, search = '', department = '', role = '' } = req.query;
 
     // Build query
-    const query = {};
+    const query = { organizationId: req.organizationId };
     
     if (search) {
       query.$or = [
@@ -84,7 +85,7 @@ const getUsers = async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit)
-      .populate('createdBy', 'name email');
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } });
 
     // Get total count
     const total = await User.countDocuments(query);
@@ -114,7 +115,10 @@ const getUsers = async (req, res) => {
 // @access  Private (Admin)
 const getUserById = async (req, res) => {
   try {
-    const user = await User.findById(req.params.id).select('-password');
+    const user = await User.findOne({
+      _id: req.params.id,
+      organizationId: req.organizationId
+    }).select('-password');
     
     if (!user) {
       return res.status(404).json({ 
@@ -144,7 +148,10 @@ const updateUser = async (req, res) => {
   try {
     const { name, email, department = '', position = '', isActive, role } = req.body;
 
-    const user = await User.findById(req.params.id);
+    const user = await User.findOne({
+      _id: req.params.id,
+      organizationId: req.organizationId
+    });
     
     if (!user) {
       return res.status(404).json({ 
@@ -155,7 +162,7 @@ const updateUser = async (req, res) => {
 
     // Check if email is being changed and if it already exists
     if (email !== user.email) {
-      const existingUser = await User.findByEmail(email);
+      const existingUser = await User.findOne({ email: email.toLowerCase() });
       if (existingUser) {
         return res.status(400).json({ 
           error: 'Email already exists',
@@ -214,7 +221,10 @@ const updateUser = async (req, res) => {
 // @access  Private (Admin)
 const deactivateUser = async (req, res) => {
   try {
-    const user = await User.findById(req.params.id);
+    const user = await User.findOne({
+      _id: req.params.id,
+      organizationId: req.organizationId
+    });
     
     if (!user) {
       return res.status(404).json({ 
@@ -254,7 +264,10 @@ const deactivateUser = async (req, res) => {
 // @access  Private (Admin)
 const activateUser = async (req, res) => {
   try {
-    const user = await User.findById(req.params.id);
+    const user = await User.findOne({
+      _id: req.params.id,
+      organizationId: req.organizationId
+    });
     
     if (!user) {
       return res.status(404).json({ 
@@ -287,7 +300,10 @@ const resetPassword = async (req, res) => {
   try {
     const { newPassword } = req.body;
 
-    const user = await User.findById(req.params.id).select('+password');
+    const user = await User.findOne({
+      _id: req.params.id,
+      organizationId: req.organizationId
+    }).select('+password');
     
     if (!user) {
       return res.status(404).json({ 

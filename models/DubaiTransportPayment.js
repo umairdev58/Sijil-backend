@@ -1,6 +1,11 @@
 const mongoose = require('mongoose');
 
 const dubaiTransportPaymentSchema = new mongoose.Schema({
+  organizationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
+    required: [true, 'Organization ID is required']
+  },
   invoiceId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'DubaiTransportInvoice',
@@ -46,9 +51,9 @@ const dubaiTransportPaymentSchema = new mongoose.Schema({
 });
 
 // Indexes for better query performance
-dubaiTransportPaymentSchema.index({ invoiceId: 1 });
-dubaiTransportPaymentSchema.index({ receivedBy: 1 });
-dubaiTransportPaymentSchema.index({ paymentDate: 1 });
-dubaiTransportPaymentSchema.index({ paymentMethod: 1 });
+dubaiTransportPaymentSchema.index({ organizationId: 1, invoiceId: 1 });
+dubaiTransportPaymentSchema.index({ organizationId: 1, receivedBy: 1 });
+dubaiTransportPaymentSchema.index({ organizationId: 1, paymentDate: 1 });
+dubaiTransportPaymentSchema.index({ organizationId: 1, paymentMethod: 1 });
 
 module.exports = mongoose.model('DubaiTransportPayment', dubaiTransportPaymentSchema);

@@ -1,11 +1,15 @@
 const mongoose = require('mongoose');
 
 const categorySchema = new mongoose.Schema({
+  organizationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
+    required: [true, 'Organization ID is required']
+  },
   name: {
     type: String,
     required: [true, 'Category name is required'],
     trim: true,
-    unique: true,
     maxlength: [100, 'Category name cannot be more than 100 characters']
   },
   description: {
@@ -31,8 +35,8 @@ const categorySchema = new mongoose.Schema({
 });
 
 // Indexes for better query performance
-categorySchema.index({ name: 1 });
-categorySchema.index({ isActive: 1 });
+categorySchema.index({ organizationId: 1, name: 1 }, { unique: true });
+categorySchema.index({ organizationId: 1, isActive: 1 });
 
 // Instance method to get category info without sensitive data
 categorySchema.methods.toJSON = function() {
@@ -48,8 +52,10 @@ categorySchema.statics.findByName = function(name) {
 };
 
 // Static method to get category statistics
-categorySchema.statics.getStatistics = async function() {
+categorySchema.statics.getStatistics = async function(organizationId) {
+  if (!organizationId) throw new Error('organizationId is required for category statistics');
   const stats = await this.aggregate([
+    { $match: { organizationId: new mongoose.Types.ObjectId(organizationId) } },
     {
       $group: {
         _id: null,
@@ -58,7 +64,7 @@ categorySchema.statics.getStatistics = async function() {
           $sum: { $cond: [{ $eq: ['$isActive', true] }, 1, 0] }
         },
         inactiveCategories: {
-          $sum: { $cond: [{ $eq: ['isActive', false] }, 1, 0] }
+          $sum: { $cond: [{ $eq: ['$isActive', false] }, 1, 0] }
         }
       }
     }

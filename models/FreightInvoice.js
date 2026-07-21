@@ -1,10 +1,14 @@
 const mongoose = require('mongoose');
 
 const freightInvoiceSchema = new mongoose.Schema({
+  organizationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
+    required: [true, 'Organization ID is required']
+  },
   invoice_number: {
     type: String,
     required: true,
-    unique: true,
     trim: true
   },
   description: {
@@ -68,15 +72,16 @@ const freightInvoiceSchema = new mongoose.Schema({
 freightInvoiceSchema.virtual('payments', {
   ref: 'FreightPayment',
   localField: '_id',
-  foreignField: 'freightInvoiceId'
+  foreignField: 'freightInvoiceId',
+  match: invoice => ({ organizationId: invoice.organizationId })
 });
 
-freightInvoiceSchema.index({ invoice_number: 1 }, { unique: true });
-freightInvoiceSchema.index({ invoice_date: -1 });
-freightInvoiceSchema.index({ container_number: 1 });
-freightInvoiceSchema.index({ status: 1 });
-freightInvoiceSchema.index({ due_date: 1 });
-freightInvoiceSchema.index({ last_payment_date: 1 });
+freightInvoiceSchema.index({ organizationId: 1, invoice_number: 1 }, { unique: true });
+freightInvoiceSchema.index({ organizationId: 1, invoice_date: -1 });
+freightInvoiceSchema.index({ organizationId: 1, container_number: 1 });
+freightInvoiceSchema.index({ organizationId: 1, status: 1 });
+freightInvoiceSchema.index({ organizationId: 1, due_date: 1 });
+freightInvoiceSchema.index({ organizationId: 1, last_payment_date: 1 });
 
 freightInvoiceSchema.pre('save', function(next) {
   this.outstanding_amount_aed = this.amount_aed - this.paid_amount_aed;
@@ -121,6 +126,7 @@ freightInvoiceSchema.methods.addPayment = async function(paymentData) {
   const FreightPayment = require('./FreightPayment');
 
   const payment = new FreightPayment({
+    organizationId: this.organizationId,
     freightInvoiceId: this._id,
     amount: paymentData.amount,
     receivedBy: paymentData.receivedBy,
@@ -154,7 +160,10 @@ freightInvoiceSchema.methods.addPayment = async function(paymentData) {
 
 freightInvoiceSchema.methods.getPaymentHistory = async function() {
   const FreightPayment = require('./FreightPayment');
-  return await FreightPayment.find({ freightInvoiceId: this._id })
+  return await FreightPayment.find({
+    freightInvoiceId: this._id,
+    organizationId: this.organizationId
+  })
     .populate('receivedBy', 'name email')
     .sort({ paymentDate: -1 });
 };

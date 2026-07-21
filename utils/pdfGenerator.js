@@ -1,7 +1,18 @@
 const PDFDocument = require('pdfkit');
 
 class PDFGenerator {
-  constructor() {
+  constructor(organization = {}) {
+    const branding = organization.branding || {};
+    this.companyName = branding.companyName
+      || organization.legalName
+      || organization.tradingName
+      || organization.name
+      || 'Company';
+    this.companyTRN = branding.trn || organization.trn || '';
+    this.companyAddress = branding.address || organization.address || '';
+    this.companyPhone = branding.phone || organization.phone || '';
+    this.companyEmail = branding.email || organization.email || '';
+    this.logoUrl = branding.logoUrl || organization.logoUrl || '';
     this.doc = null;
     this.currentY = 0;
     this.pageWidth = 595;
@@ -38,7 +49,7 @@ class PDFGenerator {
   // Generate single-invoice (A4 half size, landscape ~ 598x421pt) on pre-printed paper
   generateInvoiceA5(res, sale, options = {}) {
     const {
-      companyTRN = process.env.COMPANY_TRN || '',
+      companyTRN = this.companyTRN,
     } = options;
 
     // A5 landscape approximate size in points (21.08 cm x 14.85 cm)
@@ -143,7 +154,7 @@ class PDFGenerator {
   }
 
   // Add company header
-  addHeader(companyName = 'KOTIA FRUITS AND VEGETABLES TRADING LLC') {
+  addHeader(companyName = this.companyName) {
     this.doc.fillColor('#1a365d');
     this.doc.fontSize(24).font('Helvetica-Bold');
     this.doc.text(companyName, { align: 'center' });
@@ -537,7 +548,7 @@ class PDFGenerator {
     
     this.doc.fontSize(8).font('Helvetica');
     this.doc.fillColor('#718096');
-    this.doc.text('KOTIA FRUITS AND VEGETABLES TRADING LLC - Sales Report', this.margin, footerY);
+    this.doc.text(`${this.companyName} - Sales Report`, this.margin, footerY);
     this.doc.text(`Page ${this.doc.bufferedPageRange().count}`, this.pageWidth - this.margin - 50, footerY);
     
     // Format footer with single line generation info
@@ -603,7 +614,7 @@ class PDFGenerator {
   }
 
   // Add purchase-specific header
-  addPurchaseHeader(companyName = 'KOTIA FRUITS AND VEGETABLES TRADING LLC') {
+  addPurchaseHeader(companyName = this.companyName) {
     this.doc.fillColor('#1a365d');
     this.doc.fontSize(24).font('Helvetica-Bold');
     this.doc.text(companyName, { align: 'center' });
@@ -787,7 +798,7 @@ class PDFGenerator {
     // Header
     this.doc.fontSize(20).font('Helvetica-Bold');
     this.doc.fillColor('#2d3748');
-    this.doc.text('TRANSPORT INVOICES REPORT', this.margin, 50, { align: 'center' });
+    this.doc.text(`${this.companyName} - TRANSPORT INVOICES REPORT`, this.margin, 50, { align: 'center' });
     
     // Subtitle
     this.doc.fontSize(12).font('Helvetica');
@@ -963,7 +974,7 @@ class PDFGenerator {
     // Header
     this.doc.fontSize(20).font('Helvetica-Bold');
     this.doc.fillColor('#2d3748');
-    this.doc.text('CUSTOMER OUTSTANDING AMOUNTS REPORT', this.margin, 50, { align: 'center' });
+    this.doc.text(`${this.companyName} - CUSTOMER OUTSTANDING AMOUNTS REPORT`, this.margin, 50, { align: 'center' });
     
     // Subtitle
     this.doc.fontSize(12).font('Helvetica');
@@ -1143,15 +1154,8 @@ class PDFGenerator {
     // LOGO
     // =================================================
     try {
-      const path = require('path');
       const fs = require('fs');
-  
-      const logoPath = path.join(__dirname, '../assets/images/company-logo.png');
-      const altLogoPath = path.join(__dirname, '../company-logo.png');
-  
-      let logo = null;
-      if (fs.existsSync(logoPath)) logo = logoPath;
-      else if (fs.existsSync(altLogoPath)) logo = altLogoPath;
+      const logo = this.logoUrl && fs.existsSync(this.logoUrl) ? this.logoUrl : null;
   
       if (logo) {
         const logoWidth = this.contentWidth * 0.8;
@@ -1165,8 +1169,10 @@ class PDFGenerator {
     // =================================================
     // HEADER
     // =================================================
+    this.doc.fontSize(14).font('Helvetica-Bold').fillColor('#1f2937');
+    this.doc.text(this.companyName, this.margin, 86, { align: 'center' });
     this.doc.fontSize(20).font('Helvetica-Bold').fillColor('#1f2937');
-    this.doc.text('GOODS SALE STATEMENT', this.margin, 110, { align: 'center' });
+    this.doc.text('GOODS SALE STATEMENT', this.margin, 112, { align: 'center' });
   
     this.doc.fontSize(11).font('Helvetica').fillColor('#4b5563');
   
@@ -1515,7 +1521,7 @@ class PDFGenerator {
   }
 
   // Add freight-specific header
-  addFreightHeader(companyName = 'KOTIA FRUITS AND VEGETABLES TRADING LLC') {
+  addFreightHeader(companyName = this.companyName) {
     this.doc.fillColor('#1a365d');
     this.doc.fontSize(24).font('Helvetica-Bold');
     this.doc.text(companyName, { align: 'center' });
@@ -1829,7 +1835,7 @@ class PDFGenerator {
     const doc = this.initDocument(res, filename);
 
     this.doc.fontSize(20).font('Helvetica-Bold');
-    this.doc.text('Freight Invoice', this.margin, 50, { align: 'center' });
+    this.doc.text(`${this.companyName} - Freight Invoice`, this.margin, 50, { align: 'center' });
     this.doc.moveDown();
 
     this.doc.fontSize(12).font('Helvetica');
@@ -1849,6 +1855,23 @@ class PDFGenerator {
     this.doc.end();
   }
 
+  generateTransportInvoice(res, invoice) {
+    const filename = `transport-invoice-${invoice.invoice_number}.pdf`;
+    const doc = this.initDocument(res, filename);
+    this.doc.fontSize(20).font('Helvetica-Bold');
+    this.doc.text(`${this.companyName} - Transport Invoice`, this.margin, 50, { align: 'center' });
+    this.doc.fontSize(12).font('Helvetica');
+    this.doc.text(`Invoice Number: ${invoice.invoice_number}`, this.margin, 100);
+    this.doc.text(`Agent: ${invoice.agent || 'N/A'}`, this.margin, 120);
+    this.doc.text(`Date: ${new Date(invoice.invoice_date).toLocaleDateString()}`, this.margin, 140);
+    this.doc.text(`Due Date: ${new Date(invoice.due_date).toLocaleDateString()}`, this.margin, 160);
+    this.doc.fontSize(14).font('Helvetica-Bold');
+    this.doc.text(`Amount (PKR): ${(invoice.amount_pkr || 0).toFixed(2)}`, this.margin, 210);
+    this.doc.text(`Amount (AED): ${(invoice.amount_aed || 0).toFixed(2)}`, this.margin, 230);
+    this.doc.text(`Outstanding (PKR): ${(invoice.outstanding_amount_pkr || 0).toFixed(2)}`, this.margin, 250);
+    doc.end();
+  }
+
   // Generate Dubai transport invoice
   generateDubaiTransportInvoice(res, invoice) {
     const filename = `dubai-transport-invoice-${invoice.invoice_number}.pdf`;
@@ -1856,7 +1879,7 @@ class PDFGenerator {
 
     // Header
     this.doc.fontSize(20).font('Helvetica-Bold');
-    this.doc.text('Dubai Transport Invoice', this.margin, 50, { align: 'center' });
+    this.doc.text(`${this.companyName} - Dubai Transport Invoice`, this.margin, 50, { align: 'center' });
     this.doc.moveDown();
 
     // Invoice details
@@ -1885,7 +1908,7 @@ class PDFGenerator {
 
     // Header
     this.doc.fontSize(20).font('Helvetica-Bold');
-    this.doc.text('Dubai Transport Report', this.margin, 50, { align: 'center' });
+    this.doc.text(`${this.companyName} - Dubai Transport Report`, this.margin, 50, { align: 'center' });
     this.doc.moveDown();
 
     // Summary
@@ -1982,7 +2005,7 @@ class PDFGenerator {
 
     // Header
     this.doc.fontSize(20).font('Helvetica-Bold');
-    this.doc.text('Dubai Clearance Invoice', this.margin, 50, { align: 'center' });
+    this.doc.text(`${this.companyName} - Dubai Clearance Invoice`, this.margin, 50, { align: 'center' });
     this.doc.moveDown();
 
     // Invoice details
@@ -2010,7 +2033,7 @@ class PDFGenerator {
 
     // Header
     this.doc.fontSize(20).font('Helvetica-Bold');
-    this.doc.text('Dubai Clearance Report', this.margin, 50, { align: 'center' });
+    this.doc.text(`${this.companyName} - Dubai Clearance Report`, this.margin, 50, { align: 'center' });
     this.doc.moveDown();
 
     // Summary

@@ -4,8 +4,8 @@ const Counter = require('../models/Counter');
 const PDFGenerator = require('../utils/pdfGenerator');
 
 // Generate invoice number
-const generateInvoiceNumber = async () => {
-  const sequence = await Counter.getNextSequence('transport_invoice');
+const generateInvoiceNumber = async (organizationId) => {
+  const sequence = await Counter.getNextSequence(organizationId, 'transport_invoice');
   return `TR-${sequence.toString().padStart(4, '0')}`;
 };
 
@@ -15,9 +15,10 @@ const createTransportInvoice = async (req, res) => {
     const data = req.body;
 
     // Generate invoice number
-    const invoice_number = await generateInvoiceNumber();
+    const invoice_number = await generateInvoiceNumber(req.organizationId);
 
     const transportInvoice = new TransportInvoice({
+      organizationId: req.organizationId,
       invoice_number,
       amount_pkr: data.amount_pkr,
       conversion_rate: data.conversion_rate,
@@ -55,7 +56,7 @@ const getTransportInvoices = async (req, res) => {
       dueDateTo = ''
     } = req.query;
     
-    const query = {};
+    const query = { organizationId: req.organizationId };
     
     // Search filter
     if (search) {
@@ -100,8 +101,8 @@ const getTransportInvoices = async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(Number(limit) * 1)
       .skip((Number(page) - 1) * Number(limit))
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
 
     const total = await TransportInvoice.countDocuments(query);
     
@@ -129,9 +130,9 @@ const getTransportInvoiceById = async (req, res) => {
       return res.status(400).json({ error: 'Invalid transport invoice ID' });
     }
     
-    const transportInvoice = await TransportInvoice.findById(id)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+    const transportInvoice = await TransportInvoice.findOne({ _id: id, organizationId: req.organizationId })
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
       
     if (!transportInvoice) {
       return res.status(404).json({ error: 'Transport invoice not found' });
@@ -153,14 +154,15 @@ const updateTransportInvoice = async (req, res) => {
     }
     
     const data = req.body;
-    const transportInvoice = await TransportInvoice.findById(id);
+    const transportInvoice = await TransportInvoice.findOne({ _id: id, organizationId: req.organizationId });
     
     if (!transportInvoice) {
       return res.status(404).json({ error: 'Transport invoice not found' });
     }
 
     // Update fields
-    Object.assign(transportInvoice, data);
+    const { organizationId: ignoredOrganizationId, ...safeData } = data;
+    Object.assign(transportInvoice, safeData);
     transportInvoice.updatedBy = req.user.id;
     
     await transportInvoice.save();
@@ -191,7 +193,7 @@ const addTransportPayment = async (req, res) => {
       paymentDate
     } = req.body;
 
-    const transportInvoice = await TransportInvoice.findById(id);
+    const transportInvoice = await TransportInvoice.findOne({ _id: id, organizationId: req.organizationId });
     
     if (!transportInvoice) {
       return res.status(404).json({ error: 'Transport invoice not found' });
@@ -217,14 +219,16 @@ const addTransportPayment = async (req, res) => {
     });
 
     // Get updated transport invoice with payment history
-    const updatedTransportInvoice = await TransportInvoice.findById(id)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email')
+    const updatedTransportInvoice = await TransportInvoice.findOne({ _id: id, organizationId: req.organizationId })
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } })
       .populate({
         path: 'payments',
+        match: { organizationId: req.organizationId },
         populate: {
           path: 'receivedBy',
-          select: 'name email'
+          select: 'name email',
+          match: { organizationId: req.organizationId }
         }
       });
 
@@ -247,13 +251,15 @@ const getTransportPaymentHistory = async (req, res) => {
       return res.status(400).json({ error: 'Invalid transport invoice ID' });
     }
     
-    const transportInvoice = await TransportInvoice.findById(id);
+    const transportInvoice = await TransportInvoice.findOne({ _id: id, organizationId: req.organizationId });
     
     if (!transportInvoice) {
       return res.status(404).json({ error: 'Transport invoice not found' });
     }
 
-    const paymentHistory = await transportInvoice.getPaymentHistory();
+    const paymentHistory = await TransportPayment.find({ transportInvoiceId: id, organizationId: req.organizationId })
+      .populate({ path: 'receivedBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .sort({ paymentDate: -1 });
     
     res.json({
       success: true,
@@ -273,13 +279,13 @@ const deleteTransportInvoice = async (req, res) => {
       return res.status(400).json({ error: 'Invalid transport invoice ID' });
     }
     
-    const transportInvoice = await TransportInvoice.findById(id);
+    const transportInvoice = await TransportInvoice.findOne({ _id: id, organizationId: req.organizationId });
     
     if (!transportInvoice) {
       return res.status(404).json({ error: 'Transport invoice not found' });
     }
 
-    await TransportInvoice.findByIdAndDelete(id);
+    await TransportInvoice.findOneAndDelete({ _id: id, organizationId: req.organizationId });
     
     res.json({ success: true, message: 'Transport invoice deleted successfully' });
   } catch (error) {
@@ -291,33 +297,39 @@ const deleteTransportInvoice = async (req, res) => {
 // Get transport invoice statistics
 const getTransportInvoiceStats = async (req, res) => {
   try {
-    const totalInvoices = await TransportInvoice.countDocuments();
-    const paidInvoices = await TransportInvoice.countDocuments({ status: 'paid' });
-    const unpaidInvoices = await TransportInvoice.countDocuments({ status: 'unpaid' });
-    const partiallyPaidInvoices = await TransportInvoice.countDocuments({ status: 'partially_paid' });
-    const overdueInvoices = await TransportInvoice.countDocuments({ status: 'overdue' });
+    const totalInvoices = await TransportInvoice.countDocuments({ organizationId: req.organizationId });
+    const paidInvoices = await TransportInvoice.countDocuments({ organizationId: req.organizationId, status: 'paid' });
+    const unpaidInvoices = await TransportInvoice.countDocuments({ organizationId: req.organizationId, status: 'unpaid' });
+    const partiallyPaidInvoices = await TransportInvoice.countDocuments({ organizationId: req.organizationId, status: 'partially_paid' });
+    const overdueInvoices = await TransportInvoice.countDocuments({ organizationId: req.organizationId, status: 'overdue' });
     
     const totalAmountPKR = await TransportInvoice.aggregate([
+      { $match: { organizationId: req.organizationId } },
       { $group: { _id: null, total: { $sum: '$amount_pkr' } } }
     ]);
     
     const totalAmountAED = await TransportInvoice.aggregate([
+      { $match: { organizationId: req.organizationId } },
       { $group: { _id: null, total: { $sum: '$amount_aed' } } }
     ]);
     
     const paidAmountPKR = await TransportInvoice.aggregate([
+      { $match: { organizationId: req.organizationId } },
       { $group: { _id: null, total: { $sum: '$paid_amount_pkr' } } }
     ]);
     
     const paidAmountAED = await TransportInvoice.aggregate([
+      { $match: { organizationId: req.organizationId } },
       { $group: { _id: null, total: { $sum: '$paid_amount_aed' } } }
     ]);
     
     const outstandingAmountPKR = await TransportInvoice.aggregate([
+      { $match: { organizationId: req.organizationId } },
       { $group: { _id: null, total: { $sum: '$outstanding_amount_pkr' } } }
     ]);
     
     const outstandingAmountAED = await TransportInvoice.aggregate([
+      { $match: { organizationId: req.organizationId } },
       { $group: { _id: null, total: { $sum: '$outstanding_amount_aed' } } }
     ]);
 
@@ -350,15 +362,15 @@ const printTransportInvoice = async (req, res) => {
       return res.status(400).json({ error: 'Invalid transport invoice ID' });
     }
     
-    const transportInvoice = await TransportInvoice.findById(req.params.id)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+    const transportInvoice = await TransportInvoice.findOne({ _id: req.params.id, organizationId: req.organizationId })
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
       
     if (!transportInvoice) {
       return res.status(404).json({ error: 'Transport invoice not found' });
     }
 
-    const pdf = new PDFGenerator();
+    const pdf = new PDFGenerator(req.organization);
     pdf.generateTransportInvoice(res, transportInvoice);
   } catch (error) {
     console.error('Print transport invoice error:', error);
@@ -374,7 +386,7 @@ const generateTransportReportPDF = async (req, res) => {
       dueDateFrom, dueDateTo, groupBy, includePayments 
     } = req.query;
     
-    const query = {};
+    const query = { organizationId: req.organizationId };
     
     // Apply filters
     if (startDate || endDate) {
@@ -404,11 +416,11 @@ const generateTransportReportPDF = async (req, res) => {
     }
 
     const transportInvoices = await TransportInvoice.find(query)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email')
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } })
       .sort({ invoice_date: -1 });
 
-    const pdf = new PDFGenerator();
+    const pdf = new PDFGenerator(req.organization);
     pdf.generateTransportReport(res, transportInvoices, {
       startDate, endDate, agent, status, minAmount, maxAmount, 
       dueDateFrom, dueDateTo, groupBy, includePayments: includePayments === 'true'
@@ -427,7 +439,7 @@ const generateTransportReportCSV = async (req, res) => {
       dueDateFrom, dueDateTo, groupBy, includePayments 
     } = req.query;
     
-    const query = {};
+    const query = { organizationId: req.organizationId };
     
     // Apply filters
     if (startDate || endDate) {
@@ -457,11 +469,11 @@ const generateTransportReportCSV = async (req, res) => {
     }
 
     const transportInvoices = await TransportInvoice.find(query)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email')
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } })
       .sort({ invoice_date: -1 });
 
-    const pdf = new PDFGenerator();
+    const pdf = new PDFGenerator(req.organization);
     pdf.generateTransportReportCSV(res, transportInvoices, {
       startDate, endDate, agent, status, minAmount, maxAmount, 
       dueDateFrom, dueDateTo, groupBy, includePayments: includePayments === 'true'

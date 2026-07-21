@@ -9,6 +9,7 @@ const createCategory = async (req, res) => {
 
     // Check if category with same name already exists
     const existingCategory = await Category.findOne({ 
+      organizationId: req.organizationId,
       name: { $regex: new RegExp(`^${name}$`, 'i') }
     });
     
@@ -21,6 +22,7 @@ const createCategory = async (req, res) => {
 
     // Create new category
     const newCategory = new Category({
+      organizationId: req.organizationId,
       name,
       description,
       createdBy: req.user.id
@@ -61,7 +63,7 @@ const getCategories = async (req, res) => {
     const fetchAll = all === 'true';
 
     // Build query
-    const query = {};
+    const query = { organizationId: req.organizationId };
 
     if (search) {
       query.$or = [
@@ -80,14 +82,14 @@ const getCategories = async (req, res) => {
       categoryQuery.limit(limitNumber).skip((pageNumber - 1) * limitNumber);
     }
     const categories = await categoryQuery
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
 
     // Get total count
     const total = await Category.countDocuments(query);
 
     // Get statistics
-    const stats = await Category.getStatistics();
+    const stats = await Category.getStatistics(req.organizationId);
 
     const currentPage = fetchAll ? 1 : pageNumber;
     const categoriesPerPage = fetchAll ? total : limitNumber;
@@ -129,9 +131,9 @@ const getCategoryById = async (req, res) => {
       });
     }
 
-    const category = await Category.findById(req.params.id)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+    const category = await Category.findOne({ _id: req.params.id, organizationId: req.organizationId })
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
 
     if (!category) {
       return res.status(404).json({
@@ -169,7 +171,7 @@ const updateCategory = async (req, res) => {
 
     const { name, description, isActive } = req.body;
 
-    const category = await Category.findById(req.params.id);
+    const category = await Category.findOne({ _id: req.params.id, organizationId: req.organizationId });
 
     if (!category) {
       return res.status(404).json({
@@ -182,7 +184,8 @@ const updateCategory = async (req, res) => {
     if (name !== category.name) {
       const existingCategory = await Category.findOne({ 
         name: { $regex: new RegExp(`^${name}$`, 'i') },
-        _id: { $ne: req.params.id }
+        _id: { $ne: req.params.id },
+        organizationId: req.organizationId
       });
       
       if (existingCategory) {
@@ -233,7 +236,7 @@ const deleteCategory = async (req, res) => {
       });
     }
 
-    const category = await Category.findById(req.params.id);
+    const category = await Category.findOne({ _id: req.params.id, organizationId: req.organizationId });
 
     if (!category) {
       return res.status(404).json({
@@ -244,7 +247,7 @@ const deleteCategory = async (req, res) => {
 
     // Check if category has products
     const Product = require('../models/Product');
-    const productsCount = await Product.countDocuments({ category: req.params.id });
+    const productsCount = await Product.countDocuments({ category: req.params.id, organizationId: req.organizationId });
     
     if (productsCount > 0) {
       return res.status(400).json({
@@ -254,7 +257,7 @@ const deleteCategory = async (req, res) => {
     }
 
     // Delete category
-    await Category.findByIdAndDelete(req.params.id);
+    await Category.deleteOne({ _id: req.params.id, organizationId: req.organizationId });
 
     res.json({
       success: true,
@@ -283,7 +286,7 @@ const activateCategory = async (req, res) => {
       });
     }
 
-    const category = await Category.findById(req.params.id);
+    const category = await Category.findOne({ _id: req.params.id, organizationId: req.organizationId });
 
     if (!category) {
       return res.status(404).json({
@@ -318,10 +321,10 @@ const searchCategoriesByName = async (req, res) => {
     const { name } = req.params;
     const { limit = 10 } = req.query;
 
-    const categories = await Category.findByName(name)
+    const categories = await Category.find({ organizationId: req.organizationId, name: { $regex: name, $options: 'i' } })
       .limit(parseInt(limit))
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
 
     res.json({
       success: true,
@@ -343,7 +346,7 @@ const searchCategoriesByName = async (req, res) => {
 // @access  Private (Admin/Employee)
 const getCategoryStatistics = async (req, res) => {
   try {
-    const stats = await Category.getStatistics();
+    const stats = await Category.getStatistics(req.organizationId);
 
     res.json({
       success: true,

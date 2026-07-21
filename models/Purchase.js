@@ -1,12 +1,16 @@
 const mongoose = require('mongoose');
 
 const purchaseSchema = new mongoose.Schema({
+  organizationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
+    required: [true, 'Organization ID is required']
+  },
   containerNo: {
     type: String,
     required: [true, 'Container number is required'],
     trim: true,
-    maxlength: [50, 'Container number cannot be more than 50 characters'],
-    unique: true
+    maxlength: [50, 'Container number cannot be more than 50 characters']
   },
   product: {
     type: String,
@@ -84,9 +88,9 @@ const purchaseSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-purchaseSchema.index({ product: 1 });
-purchaseSchema.index({ createdAt: -1 });
-purchaseSchema.index({ containerNo: 1 }, { unique: true });
+purchaseSchema.index({ organizationId: 1, product: 1 });
+purchaseSchema.index({ organizationId: 1, createdAt: -1 });
+purchaseSchema.index({ organizationId: 1, containerNo: 1 }, { unique: true });
 
 // Pre-save calculation
 purchaseSchema.pre('save', function(next) {

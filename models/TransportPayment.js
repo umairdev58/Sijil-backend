@@ -1,6 +1,11 @@
 const mongoose = require('mongoose');
 
 const transportPaymentSchema = new mongoose.Schema({
+  organizationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
+    required: [true, 'Organization ID is required']
+  },
   transportInvoiceId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'TransportInvoice',
@@ -46,10 +51,10 @@ const transportPaymentSchema = new mongoose.Schema({
 });
 
 // Indexes for better query performance
-transportPaymentSchema.index({ transportInvoiceId: 1 });
-transportPaymentSchema.index({ receivedBy: 1 });
-transportPaymentSchema.index({ paymentDate: 1 });
-transportPaymentSchema.index({ paymentType: 1 });
+transportPaymentSchema.index({ organizationId: 1, transportInvoiceId: 1 });
+transportPaymentSchema.index({ organizationId: 1, receivedBy: 1 });
+transportPaymentSchema.index({ organizationId: 1, paymentDate: 1 });
+transportPaymentSchema.index({ organizationId: 1, paymentType: 1 });
 
 // Instance method to get payment details
 transportPaymentSchema.methods.toJSON = function() {

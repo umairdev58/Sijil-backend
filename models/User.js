@@ -2,6 +2,20 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema({
+  organizationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
+    required: function() {
+      return this.role !== 'superadmin';
+    },
+    validate: {
+      validator: function(value) {
+        return this.role === 'superadmin' ? value == null : value != null;
+      },
+      message: 'Superadmins cannot belong to an organization; all other users must belong to one'
+    },
+    default: null
+  },
   name: {
     type: String,
     required: [true, 'Name is required'],
@@ -23,7 +37,7 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['admin', 'employee'],
+    enum: ['superadmin', 'admin', 'employee'],
     default: 'employee'
   },
   department: {
@@ -59,10 +73,9 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Index for better query performance
-userSchema.index({ email: 1 });
-userSchema.index({ role: 1 });
-userSchema.index({ department: 1 });
+// Email remains globally unique; all other lookup indexes are tenant-scoped.
+userSchema.index({ organizationId: 1, role: 1 });
+userSchema.index({ organizationId: 1, department: 1 });
 
 // Pre-save middleware to hash password
 userSchema.pre('save', async function(next) {
