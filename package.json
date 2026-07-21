@@ -8,6 +8,7 @@
     "dev": "nodemon server.js",
     "migrate:kotia": "node scripts/migrate-kotia-organization.js",
     "verify:kotia": "node scripts/verify-kotia-organization.js",
+    "seed:superadmin": "node scripts/seed-superadmin.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
