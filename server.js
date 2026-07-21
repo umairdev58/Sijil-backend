@@ -19,6 +19,7 @@ const dubaiClearanceRoutes = require('./routes/dubaiClearance');
 const containerStatementRoutes = require('./routes/containerStatements');
 const categoryRoutes = require('./routes/categories');
 const productRoutes = require('./routes/products');
+const whatsappRoutes = require('./routes/whatsapp');
 const { initializeAdmin } = require('./utils/adminInitializer');
 const { formatNumbersDeep } = require('./utils/numberFormatter');
 
@@ -85,8 +86,15 @@ app.use((req, res, next) => {
 // });
 // app.use(limiter);
 
-// Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
+// Body parsing middleware. Preserve the raw webhook body for optional Meta signature verification.
+app.use(express.json({
+  limit: '10mb',
+  verify: (req, res, buffer) => {
+    if (req.originalUrl === '/api/whatsapp/webhook') {
+      req.rawBody = buffer;
+    }
+  }
+}));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Global response formatter: ceil all numeric values to two decimals
@@ -168,6 +176,7 @@ app.use('/api/dubai-clearance-invoices', dubaiClearanceRoutes);
 app.use('/api/container-statements', containerStatementRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/products', productRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
