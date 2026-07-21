@@ -1,22 +1,24 @@
 const mongoose = require('mongoose');
 
 const ledgerEntrySchema = new mongoose.Schema({
+  organizationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
+    required: [true, 'Organization ID is required']
+  },
   ledger_date: {
     type: Date,
-    required: true,
-    index: true
+    required: true
   },
   type: {
     type: String,
     required: true,
-    enum: ['receipt', 'payment'],
-    index: true
+    enum: ['receipt', 'payment']
   },
   mode: {
     type: String,
     required: true,
-    enum: ['cash', 'bank'],
-    index: true
+    enum: ['cash', 'bank']
   },
   description: {
     type: String,
@@ -57,9 +59,9 @@ const ledgerEntrySchema = new mongoose.Schema({
 });
 
 // Indexes for efficient queries
-ledgerEntrySchema.index({ ledger_date: 1, type: 1 });
-ledgerEntrySchema.index({ ledger_date: 1, mode: 1 });
-ledgerEntrySchema.index({ reference_type: 1, reference_id: 1 });
+ledgerEntrySchema.index({ organizationId: 1, ledger_date: 1, type: 1 });
+ledgerEntrySchema.index({ organizationId: 1, ledger_date: 1, mode: 1 });
+ledgerEntrySchema.index({ organizationId: 1, reference_type: 1, reference_id: 1 });
 
 // Static method to get entries by date
 ledgerEntrySchema.statics.findByDate = function(date) {

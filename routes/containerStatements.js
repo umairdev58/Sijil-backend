@@ -12,10 +12,10 @@ const {
   downloadStatementPDF,
   generatePDFFromPayload
 } = require('../controllers/containerStatementController');
-const { protect, authorize } = require('../middleware/auth');
+const { protect, authorize, requireOrganization } = require('../middleware/auth');
 
 // All routes are protected
-router.use(protect);
+router.use(protect, requireOrganization);
 
 // IMPORTANT: Define specific routes before parameterized ones to avoid conflicts
 

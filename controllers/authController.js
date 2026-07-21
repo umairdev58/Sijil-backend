@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const Organization = require('../models/Organization');
 
 // Generate JWT Token
 const generateToken = (id) => {
@@ -32,6 +33,17 @@ const login = async (req, res) => {
       });
     }
 
+    let organization = null;
+    if (user.role !== 'superadmin') {
+      organization = await Organization.findById(user.organizationId);
+      if (!organization || organization.status !== 'active') {
+        return res.status(403).json({
+          error: 'Organization inactive',
+          message: 'Your organization is inactive or unavailable'
+        });
+      }
+    }
+
     // Check password
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
@@ -53,6 +65,8 @@ const login = async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
+      organizationId: user.organizationId,
+      organization,
       department: user.department,
       position: user.position,
       isActive: user.isActive,
@@ -81,7 +95,10 @@ const login = async (req, res) => {
 // @access  Private
 const getCurrentUser = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id);
+    const user = await User.findOne({
+      _id: req.user.id,
+      ...(req.organizationId ? { organizationId: req.organizationId } : { role: 'superadmin' })
+    });
     
     if (!user) {
       return res.status(404).json({ 
@@ -95,6 +112,8 @@ const getCurrentUser = async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
+      organizationId: user.organizationId,
+      organization: req.organization || null,
       department: user.department,
       position: user.position,
       isActive: user.isActive,
@@ -136,7 +155,10 @@ const changePassword = async (req, res) => {
     const { currentPassword, newPassword } = req.body;
 
     // Get user with password
-    const user = await User.findById(req.user.id).select('+password');
+    const user = await User.findOne({
+      _id: req.user.id,
+      ...(req.organizationId ? { organizationId: req.organizationId } : { role: 'superadmin' })
+    }).select('+password');
     
     if (!user) {
       return res.status(404).json({ 
@@ -195,7 +217,10 @@ const verifyAdminPassword = async (req, res) => {
     }
 
     // Get user with password
-    const user = await User.findById(req.user.id).select('+password');
+    const user = await User.findOne({
+      _id: req.user.id,
+      organizationId: req.organizationId
+    }).select('+password');
     
     if (!user) {
       return res.status(404).json({ 
@@ -235,7 +260,10 @@ const updateProfile = async (req, res) => {
     const { name, email, department, position, trn } = req.body;
 
     // Get user
-    const user = await User.findById(req.user.id);
+    const user = await User.findOne({
+      _id: req.user.id,
+      ...(req.organizationId ? { organizationId: req.organizationId } : { role: 'superadmin' })
+    });
     
     if (!user) {
       return res.status(404).json({ 
@@ -272,6 +300,7 @@ const updateProfile = async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        organizationId: user.organizationId,
         department: user.department,
         position: user.position,
         isActive: user.isActive,

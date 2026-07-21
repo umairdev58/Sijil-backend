@@ -1,6 +1,11 @@
 const mongoose = require('mongoose');
 
 const productSchema = new mongoose.Schema({
+  organizationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
+    required: [true, 'Organization ID is required']
+  },
   name: {
     type: String,
     required: [true, 'Product name is required'],
@@ -46,11 +51,11 @@ const productSchema = new mongoose.Schema({
 });
 
 // Indexes for better query performance
-productSchema.index({ name: 1 });
-productSchema.index({ category: 1 });
-productSchema.index({ sku: 1 });
-productSchema.index({ isActive: 1 });
-productSchema.index({ name: 1, category: 1 });
+productSchema.index({ organizationId: 1, name: 1 });
+productSchema.index({ organizationId: 1, category: 1 });
+productSchema.index({ organizationId: 1, sku: 1 });
+productSchema.index({ organizationId: 1, isActive: 1 });
+productSchema.index({ organizationId: 1, name: 1, category: 1 });
 
 // Instance method to get product info without sensitive data
 productSchema.methods.toJSON = function() {
@@ -71,8 +76,10 @@ productSchema.statics.findByCategory = function(categoryId) {
 };
 
 // Static method to get product statistics
-productSchema.statics.getStatistics = async function() {
+productSchema.statics.getStatistics = async function(organizationId) {
+  if (!organizationId) throw new Error('organizationId is required for product statistics');
   const stats = await this.aggregate([
+    { $match: { organizationId: new mongoose.Types.ObjectId(organizationId) } },
     {
       $group: {
         _id: null,

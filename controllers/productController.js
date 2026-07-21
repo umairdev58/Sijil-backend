@@ -9,7 +9,7 @@ const createProduct = async (req, res) => {
     const { name, description, category, sku, unit } = req.body;
 
     // Validate category exists
-    const categoryExists = await Category.findById(category);
+    const categoryExists = await Category.findOne({ _id: category, organizationId: req.organizationId });
     if (!categoryExists) {
       return res.status(400).json({
         error: 'Invalid category',
@@ -19,6 +19,7 @@ const createProduct = async (req, res) => {
 
     // Check if product with same name already exists
     const existingProduct = await Product.findOne({ 
+      organizationId: req.organizationId,
       name: { $regex: new RegExp(`^${name}$`, 'i') }
     });
     
@@ -31,6 +32,7 @@ const createProduct = async (req, res) => {
 
     // Create new product
     const newProduct = new Product({
+      organizationId: req.organizationId,
       name,
       description,
       category,
@@ -40,7 +42,7 @@ const createProduct = async (req, res) => {
     });
 
     await newProduct.save();
-    await newProduct.populate('category', 'name');
+    await newProduct.populate({ path: 'category', select: 'name', match: { organizationId: req.organizationId } });
 
     res.status(201).json({
       success: true,
@@ -76,7 +78,7 @@ const getProducts = async (req, res) => {
     const fetchAll = all === 'true';
 
     // Build query
-    const query = {};
+    const query = { organizationId: req.organizationId };
 
     if (search) {
       query.$or = [
@@ -100,15 +102,15 @@ const getProducts = async (req, res) => {
       productQuery.limit(limitNumber).skip((pageNumber - 1) * limitNumber);
     }
     const products = await productQuery
-      .populate('category', 'name description')
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+      .populate({ path: 'category', select: 'name description', match: { organizationId: req.organizationId } })
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
 
     // Get total count
     const total = await Product.countDocuments(query);
 
     // Get statistics
-    const stats = await Product.getStatistics();
+    const stats = await Product.getStatistics(req.organizationId);
 
     const currentPage = fetchAll ? 1 : pageNumber;
     const productsPerPage = fetchAll ? total : limitNumber;
@@ -150,10 +152,10 @@ const getProductById = async (req, res) => {
       });
     }
 
-    const product = await Product.findById(req.params.id)
-      .populate('category', 'name description')
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+    const product = await Product.findOne({ _id: req.params.id, organizationId: req.organizationId })
+      .populate({ path: 'category', select: 'name description', match: { organizationId: req.organizationId } })
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
 
     if (!product) {
       return res.status(404).json({
@@ -191,7 +193,7 @@ const updateProduct = async (req, res) => {
 
     const { name, description, category, sku, unit, isActive } = req.body;
 
-    const product = await Product.findById(req.params.id);
+    const product = await Product.findOne({ _id: req.params.id, organizationId: req.organizationId });
 
     if (!product) {
       return res.status(404).json({
@@ -202,7 +204,7 @@ const updateProduct = async (req, res) => {
 
     // Validate category if being changed
     if (category && category !== product.category.toString()) {
-      const categoryExists = await Category.findById(category);
+      const categoryExists = await Category.findOne({ _id: category, organizationId: req.organizationId });
       if (!categoryExists) {
         return res.status(400).json({
           error: 'Invalid category',
@@ -215,7 +217,8 @@ const updateProduct = async (req, res) => {
     if (name !== product.name) {
       const existingProduct = await Product.findOne({ 
         name: { $regex: new RegExp(`^${name}$`, 'i') },
-        _id: { $ne: req.params.id }
+        _id: { $ne: req.params.id },
+        organizationId: req.organizationId
       });
       
       if (existingProduct) {
@@ -246,7 +249,7 @@ const updateProduct = async (req, res) => {
     product.updatedBy = req.user.id;
 
     await product.save();
-    await product.populate('category', 'name description');
+    await product.populate({ path: 'category', select: 'name description', match: { organizationId: req.organizationId } });
 
     res.json({
       success: true,
@@ -276,7 +279,7 @@ const deleteProduct = async (req, res) => {
       });
     }
 
-    const product = await Product.findById(req.params.id);
+    const product = await Product.findOne({ _id: req.params.id, organizationId: req.organizationId });
 
     if (!product) {
       return res.status(404).json({
@@ -317,7 +320,7 @@ const activateProduct = async (req, res) => {
       });
     }
 
-    const product = await Product.findById(req.params.id);
+    const product = await Product.findOne({ _id: req.params.id, organizationId: req.organizationId });
 
     if (!product) {
       return res.status(404).json({
@@ -352,11 +355,11 @@ const searchProductsByName = async (req, res) => {
     const { name } = req.params;
     const { limit = 10 } = req.query;
 
-    const products = await Product.findByName(name)
+    const products = await Product.find({ organizationId: req.organizationId, name: { $regex: name, $options: 'i' } })
       .limit(parseInt(limit))
-      .populate('category', 'name')
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+      .populate({ path: 'category', select: 'name', match: { organizationId: req.organizationId } })
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
 
     res.json({
       success: true,
@@ -382,7 +385,7 @@ const getProductsByCategory = async (req, res) => {
     const { isActive = '' } = req.query;
 
     // Validate category exists
-    const category = await Category.findById(categoryId);
+    const category = await Category.findOne({ _id: categoryId, organizationId: req.organizationId });
     if (!category) {
       return res.status(404).json({
         error: 'Category not found',
@@ -390,13 +393,13 @@ const getProductsByCategory = async (req, res) => {
       });
     }
 
-    const query = { category: categoryId };
+    const query = { category: categoryId, organizationId: req.organizationId };
     if (isActive !== '') {
       query.isActive = isActive === 'true';
     }
 
     const products = await Product.find(query)
-      .populate('category', 'name')
+      .populate({ path: 'category', select: 'name', match: { organizationId: req.organizationId } })
       .sort({ name: 1 });
 
     res.json({
@@ -418,7 +421,7 @@ const getProductsByCategory = async (req, res) => {
 // @access  Private (Admin/Employee)
 const getProductStatistics = async (req, res) => {
   try {
-    const stats = await Product.getStatistics();
+    const stats = await Product.getStatistics(req.organizationId);
 
     res.json({
       success: true,

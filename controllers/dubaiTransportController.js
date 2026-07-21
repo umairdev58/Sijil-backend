@@ -54,11 +54,11 @@ const getDubaiTransportInvoices = async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;
     const skip = (page - 1) * limit;
-    const query = buildInvoiceQuery(req.query);
+    const query = { ...buildInvoiceQuery(req.query), organizationId: req.organizationId };
 
     const invoices = await DubaiTransportInvoice.find(query)
-      .populate('createdBy', 'name')
-      .populate('updatedBy', 'name')
+      .populate({ path: 'createdBy', select: 'name', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name', match: { organizationId: req.organizationId } })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -98,6 +98,7 @@ const createDubaiTransportInvoice = async (req, res) => {
     const { invoice_number, description, container_number, amount_aed, invoice_date, due_date } = req.body;
 
     const invoice = new DubaiTransportInvoice({
+      organizationId: req.organizationId,
       invoice_number,
       description,
       container_number,
@@ -128,9 +129,9 @@ const createDubaiTransportInvoice = async (req, res) => {
 
 const getDubaiTransportInvoice = async (req, res) => {
   try {
-    const invoice = await DubaiTransportInvoice.findById(req.params.id)
-      .populate('createdBy', 'name')
-      .populate('updatedBy', 'name');
+    const invoice = await DubaiTransportInvoice.findOne({ _id: req.params.id, organizationId: req.organizationId })
+      .populate({ path: 'createdBy', select: 'name', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name', match: { organizationId: req.organizationId } });
 
     if (!invoice) {
       return res.status(404).json({
@@ -165,8 +166,8 @@ const updateDubaiTransportInvoice = async (req, res) => {
 
     const { invoice_number, description, container_number, amount_aed, invoice_date, due_date } = req.body;
 
-    const invoice = await DubaiTransportInvoice.findByIdAndUpdate(
-      req.params.id,
+    const invoice = await DubaiTransportInvoice.findOneAndUpdate(
+      { _id: req.params.id, organizationId: req.organizationId },
       {
         invoice_number,
         description,
@@ -177,7 +178,7 @@ const updateDubaiTransportInvoice = async (req, res) => {
         updatedBy: req.user._id
       },
       { new: true, runValidators: true }
-    ).populate('createdBy', 'name').populate('updatedBy', 'name');
+    ).populate({ path: 'createdBy', select: 'name', match: { organizationId: req.organizationId } }).populate({ path: 'updatedBy', select: 'name', match: { organizationId: req.organizationId } });
 
     if (!invoice) {
       return res.status(404).json({
@@ -205,7 +206,7 @@ const updateDubaiTransportInvoice = async (req, res) => {
 
 const deleteDubaiTransportInvoice = async (req, res) => {
   try {
-    const invoice = await DubaiTransportInvoice.findByIdAndDelete(req.params.id);
+    const invoice = await DubaiTransportInvoice.findOneAndDelete({ _id: req.params.id, organizationId: req.organizationId });
 
     if (!invoice) {
       return res.status(404).json({
@@ -214,7 +215,7 @@ const deleteDubaiTransportInvoice = async (req, res) => {
       });
     }
 
-    await DubaiTransportPayment.deleteMany({ invoiceId: req.params.id });
+    await DubaiTransportPayment.deleteMany({ invoiceId: req.params.id, organizationId: req.organizationId });
 
     res.json({
       success: true,
@@ -240,7 +241,7 @@ const addDubaiTransportPayment = async (req, res) => {
       });
     }
 
-    const invoice = await DubaiTransportInvoice.findById(req.params.id);
+    const invoice = await DubaiTransportInvoice.findOne({ _id: req.params.id, organizationId: req.organizationId });
     if (!invoice) {
       return res.status(404).json({
         success: false,
@@ -290,7 +291,7 @@ const addDubaiTransportPayment = async (req, res) => {
 
 const getDubaiTransportPaymentHistory = async (req, res) => {
   try {
-    const invoice = await DubaiTransportInvoice.findById(req.params.id);
+    const invoice = await DubaiTransportInvoice.findOne({ _id: req.params.id, organizationId: req.organizationId });
     if (!invoice) {
       return res.status(404).json({
         success: false,
@@ -298,7 +299,9 @@ const getDubaiTransportPaymentHistory = async (req, res) => {
       });
     }
 
-    const payments = await invoice.getPaymentHistory();
+    const payments = await DubaiTransportPayment.find({ invoiceId: req.params.id, organizationId: req.organizationId })
+      .populate({ path: 'receivedBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .sort({ paymentDate: -1 });
 
     res.json({
       success: true,
@@ -315,14 +318,17 @@ const getDubaiTransportPaymentHistory = async (req, res) => {
 
 const getDubaiTransportInvoiceStats = async (req, res) => {
   try {
-    const totalInvoices = await DubaiTransportInvoice.countDocuments();
+    const totalInvoices = await DubaiTransportInvoice.countDocuments({ organizationId: req.organizationId });
     const totalAmountAED = await DubaiTransportInvoice.aggregate([
+      { $match: { organizationId: req.organizationId } },
       { $group: { _id: null, total: { $sum: '$amount_aed' } } }
     ]);
     const paidAmountAED = await DubaiTransportInvoice.aggregate([
+      { $match: { organizationId: req.organizationId } },
       { $group: { _id: null, total: { $sum: '$paid_amount_aed' } } }
     ]);
     const outstandingAmountAED = await DubaiTransportInvoice.aggregate([
+      { $match: { organizationId: req.organizationId } },
       { $group: { _id: null, total: { $sum: '$outstanding_amount_aed' } } }
     ]);
 
@@ -346,9 +352,9 @@ const getDubaiTransportInvoiceStats = async (req, res) => {
 
 const printDubaiTransportInvoice = async (req, res) => {
   try {
-    const invoice = await DubaiTransportInvoice.findById(req.params.id)
-      .populate('createdBy', 'name')
-      .populate('updatedBy', 'name');
+    const invoice = await DubaiTransportInvoice.findOne({ _id: req.params.id, organizationId: req.organizationId })
+      .populate({ path: 'createdBy', select: 'name', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name', match: { organizationId: req.organizationId } });
 
     if (!invoice) {
       return res.status(404).json({
@@ -357,7 +363,7 @@ const printDubaiTransportInvoice = async (req, res) => {
       });
     }
 
-    const pdfGenerator = new PDFGenerator();
+    const pdfGenerator = new PDFGenerator(req.organization);
     pdfGenerator.generateDubaiTransportInvoice(res, invoice);
   } catch (error) {
     console.error('Error printing Dubai transport invoice:', error);
@@ -371,16 +377,18 @@ const printDubaiTransportInvoice = async (req, res) => {
 const generateDubaiTransportReportPDF = async (req, res) => {
   try {
     const { groupBy = 'none', includePayments = 'true' } = req.query;
-    const query = buildInvoiceQuery(req.query);
+    const query = { ...buildInvoiceQuery(req.query), organizationId: req.organizationId };
 
     let invoices = await DubaiTransportInvoice.find(query)
-      .populate('createdBy', 'name')
-      .populate('updatedBy', 'name')
+      .populate({ path: 'createdBy', select: 'name', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name', match: { organizationId: req.organizationId } })
       .sort({ createdAt: -1 });
 
     if (includePayments === 'true') {
       for (let invoice of invoices) {
-        invoice.payments = await invoice.getPaymentHistory();
+        invoice.payments = await DubaiTransportPayment.find({ invoiceId: invoice._id, organizationId: req.organizationId })
+          .populate({ path: 'receivedBy', select: 'name email', match: { organizationId: req.organizationId } })
+          .sort({ paymentDate: -1 });
       }
     }
 
@@ -390,7 +398,7 @@ const generateDubaiTransportReportPDF = async (req, res) => {
       includePayments: includePayments === 'true'
     };
 
-    const pdfGenerator = new PDFGenerator();
+    const pdfGenerator = new PDFGenerator(req.organization);
     pdfGenerator.generateDubaiTransportReport(res, invoices, options);
   } catch (error) {
     console.error('Error generating Dubai transport report PDF:', error);
@@ -404,16 +412,18 @@ const generateDubaiTransportReportPDF = async (req, res) => {
 const generateDubaiTransportReportCSV = async (req, res) => {
   try {
     const { groupBy = 'none', includePayments = 'true' } = req.query;
-    const query = buildInvoiceQuery(req.query);
+    const query = { ...buildInvoiceQuery(req.query), organizationId: req.organizationId };
 
     let invoices = await DubaiTransportInvoice.find(query)
-      .populate('createdBy', 'name')
-      .populate('updatedBy', 'name')
+      .populate({ path: 'createdBy', select: 'name', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name', match: { organizationId: req.organizationId } })
       .sort({ createdAt: -1 });
 
     if (includePayments === 'true') {
       for (let invoice of invoices) {
-        invoice.payments = await invoice.getPaymentHistory();
+        invoice.payments = await DubaiTransportPayment.find({ invoiceId: invoice._id, organizationId: req.organizationId })
+          .populate({ path: 'receivedBy', select: 'name email', match: { organizationId: req.organizationId } })
+          .sort({ paymentDate: -1 });
       }
     }
 
@@ -423,7 +433,7 @@ const generateDubaiTransportReportCSV = async (req, res) => {
       includePayments: includePayments === 'true'
     };
 
-    const pdfGenerator = new PDFGenerator();
+    const pdfGenerator = new PDFGenerator(req.organization);
     pdfGenerator.generateDubaiTransportReportCSV(res, invoices, options);
   } catch (error) {
     console.error('Error generating Dubai transport report CSV:', error);

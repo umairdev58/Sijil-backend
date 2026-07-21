@@ -48,15 +48,18 @@ const syncStatementWithSalesData = (statement, { products }, userId) => {
   }
 };
 
-const hydrateStatementForContainer = async (containerNo, userId) => {
-  const salesData = await Sales.find({ containerNo }).populate('createdBy', 'name email').sort({ createdAt: 1 });
+const hydrateStatementForContainer = async (organizationId, containerNo, userId) => {
+  const salesData = await Sales.find({ containerNo, organizationId })
+    .populate({ path: 'createdBy', select: 'name email', match: { organizationId } })
+    .sort({ createdAt: 1 });
   if (!salesData.length) {
     return null;
   }
 
-  let statement = await ContainerStatement.getByContainerNo(containerNo);
+  let statement = await ContainerStatement.findOne({ containerNo, organizationId });
   if (!statement) {
     statement = new ContainerStatement({
+      organizationId,
       containerNo,
       products: [],
       expenses: [],
@@ -86,7 +89,7 @@ const getContainerStatement = async (req, res) => {
       });
     }
 
-    const hydrated = await hydrateStatementForContainer(containerNo, req.user?.id);
+    const hydrated = await hydrateStatementForContainer(req.organizationId, containerNo, req.user?.id);
     if (!hydrated) {
       return res.status(404).json({
         success: false,
@@ -127,7 +130,10 @@ const createContainerStatement = async (req, res) => {
     }
 
     // Check if statement already exists
-    const existingStatement = await ContainerStatement.getByContainerNo(containerNo);
+    const existingStatement = await ContainerStatement.findOne({
+      containerNo,
+      organizationId: req.organizationId
+    });
 
     if (existingStatement) {
       return res.status(400).json({
@@ -138,6 +144,7 @@ const createContainerStatement = async (req, res) => {
     }
 
     const statement = new ContainerStatement({
+      organizationId: req.organizationId,
       containerNo,
       products: products || [],
       expenses: expenses || [],
@@ -170,7 +177,7 @@ const updateContainerStatement = async (req, res) => {
     const { id } = req.params;
     const { products, expenses } = req.body;
 
-    const statement = await ContainerStatement.findById(id);
+    const statement = await ContainerStatement.findOne({ _id: id, organizationId: req.organizationId });
 
     if (!statement) {
       return res.status(404).json({
@@ -228,7 +235,7 @@ const addExpense = async (req, res) => {
       });
     }
 
-    const statement = await ContainerStatement.findById(id);
+    const statement = await ContainerStatement.findOne({ _id: id, organizationId: req.organizationId });
 
     if (!statement) {
       return res.status(404).json({
@@ -292,7 +299,7 @@ const updateExpense = async (req, res) => {
       });
     }
 
-    const statement = await ContainerStatement.findById(id);
+    const statement = await ContainerStatement.findOne({ _id: id, organizationId: req.organizationId });
 
     if (!statement) {
       return res.status(404).json({
@@ -349,7 +356,7 @@ const removeExpense = async (req, res) => {
   try {
     const { id, expenseId } = req.params;
 
-    const statement = await ContainerStatement.findById(id);
+    const statement = await ContainerStatement.findOne({ _id: id, organizationId: req.organizationId });
 
     if (!statement) {
       return res.status(404).json({
@@ -405,15 +412,26 @@ const getAllContainerStatements = async (req, res) => {
   try {
     const { page = 1, limit = 10, search = '' } = req.query;
 
-    const statements = await ContainerStatement.getAllStatements(
-      parseInt(page),
-      parseInt(limit),
-      search
-    );
+    const query = {
+      organizationId: req.organizationId,
+      ...(search ? { containerNo: { $regex: search, $options: 'i' } } : {})
+    };
+    const statements = await ContainerStatement.find(query)
+      .populate({
+        path: 'createdBy',
+        select: 'name email',
+        match: { organizationId: req.organizationId }
+      })
+      .populate({
+        path: 'updatedBy',
+        select: 'name email',
+        match: { organizationId: req.organizationId }
+      })
+      .sort({ createdAt: -1 })
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .limit(parseInt(limit));
 
-    const total = await ContainerStatement.countDocuments(
-      search ? { containerNo: { $regex: search, $options: 'i' } } : {}
-    );
+    const total = await ContainerStatement.countDocuments(query);
 
     res.json({
       success: true,
@@ -444,7 +462,7 @@ const deleteContainerStatement = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const statement = await ContainerStatement.findById(id);
+    const statement = await ContainerStatement.findOne({ _id: id, organizationId: req.organizationId });
 
     if (!statement) {
       return res.status(404).json({
@@ -454,7 +472,7 @@ const deleteContainerStatement = async (req, res) => {
       });
     }
 
-    await ContainerStatement.findByIdAndDelete(id);
+    await ContainerStatement.deleteOne({ _id: id, organizationId: req.organizationId });
 
     res.json({
       success: true,
@@ -493,7 +511,7 @@ const generatePDFFromPayload = async (req, res) => {
       expenses: expenses || [],
     };
 
-    const pdf = new PDFGenerator();
+    const pdf = new PDFGenerator(req.organization);
     pdf.generateContainerStatement(res, statement, { 
       companyName: companyName || '', 
       srNo: srNo || '' 
@@ -520,13 +538,13 @@ module.exports = {
         return res.status(400).json({ success: false, message: 'Container number is required' });
       }
 
-      const hydrated = await hydrateStatementForContainer(containerNo, req.user?.id);
+      const hydrated = await hydrateStatementForContainer(req.organizationId, containerNo, req.user?.id);
       if (!hydrated) {
         return res.status(404).json({ success: false, message: `No data found for ${containerNo}` });
       }
 
       const { statement, salesData } = hydrated;
-      const pdf = new PDFGenerator();
+      const pdf = new PDFGenerator(req.organization);
       const companyName = salesData[0]
         ? (salesData[0].supplier || salesData[0].customer || '')
         : '';

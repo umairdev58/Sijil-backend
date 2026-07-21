@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const dailyLedgerController = require('../controllers/dailyLedgerController');
-const { protect } = require('../middleware/auth');
+const { protect, requireOrganization } = require('../middleware/auth');
 
 // Apply authentication middleware to all routes
-router.use(protect);
+router.use(protect, requireOrganization);
 
 // Daily Ledger routes
 router.get('/summary', dailyLedgerController.getLedgerSummary);

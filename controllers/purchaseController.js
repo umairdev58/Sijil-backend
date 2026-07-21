@@ -7,12 +7,13 @@ const createPurchase = async (req, res) => {
     const data = req.body;
 
     // Check unique container number
-    const existing = await Purchase.findOne({ containerNo: data.containerNo });
+    const existing = await Purchase.findOne({ containerNo: data.containerNo, organizationId: req.organizationId });
     if (existing) {
       return res.status(400).json({ success: false, error: 'Duplicate container', message: 'Container number already exists' });
     }
 
     const purchase = new Purchase({
+      organizationId: req.organizationId,
       containerNo: data.containerNo,
       product: data.product,
       quantity: data.quantity,
@@ -39,7 +40,7 @@ const createPurchase = async (req, res) => {
 const getPurchases = async (req, res) => {
   try {
     const { page = 1, limit = 10, search = '' } = req.query;
-    const query = {};
+    const query = { organizationId: req.organizationId };
     if (search) {
       query.containerNo = { $regex: search, $options: 'i' };
     }
@@ -47,8 +48,8 @@ const getPurchases = async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(Number(limit) * 1)
       .skip((Number(page) - 1) * Number(limit))
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
     const total = await Purchase.countDocuments(query);
     res.json({
       success: true,
@@ -73,9 +74,9 @@ const getPurchaseById = async (req, res) => {
     if (!id.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({ error: 'Invalid purchase ID' });
     }
-    const purchase = await Purchase.findById(id)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+    const purchase = await Purchase.findOne({ _id: id, organizationId: req.organizationId })
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
     if (!purchase) {
       return res.status(404).json({ error: 'Purchase not found' });
     }
@@ -94,14 +95,14 @@ const updatePurchase = async (req, res) => {
       return res.status(400).json({ error: 'Invalid purchase ID' });
     }
     const data = req.body;
-    const purchase = await Purchase.findById(id);
+    const purchase = await Purchase.findOne({ _id: id, organizationId: req.organizationId });
     if (!purchase) {
       return res.status(404).json({ error: 'Purchase not found' });
     }
 
     // Check unique container number on update (exclude current doc)
     if (data.containerNo) {
-      const duplicate = await Purchase.findOne({ containerNo: data.containerNo, _id: { $ne: id } });
+      const duplicate = await Purchase.findOne({ containerNo: data.containerNo, _id: { $ne: id }, organizationId: req.organizationId });
       if (duplicate) {
         return res.status(400).json({ success: false, error: 'Duplicate container', message: 'Container number already exists' });
       }
@@ -134,7 +135,10 @@ const deletePurchase = async (req, res) => {
     if (!id.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({ error: 'Invalid purchase ID' });
     }
-    await Purchase.findByIdAndDelete(id);
+    const result = await Purchase.deleteOne({ _id: id, organizationId: req.organizationId });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: 'Purchase not found' });
+    }
     res.json({ success: true, message: 'Purchase deleted successfully' });
   } catch (error) {
     console.error('Delete purchase error:', error);
@@ -155,7 +159,7 @@ const generatePurchaseReport = async (req, res) => {
     } = req.query;
 
     // Build query
-    const query = {};
+    const query = { organizationId: req.organizationId };
 
     if (startDate || endDate) {
       query.createdAt = {};
@@ -180,8 +184,8 @@ const generatePurchaseReport = async (req, res) => {
     // Get purchase data
     const purchases = await Purchase.find(query)
       .sort({ createdAt: -1 })
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
 
     // Calculate summary statistics
     const summary = {
@@ -314,7 +318,7 @@ const generatePurchaseReport = async (req, res) => {
       return res.send(csvContent);
     } else if (format === 'pdf') {
       // Use the improved PDF generator
-      const pdfGenerator = new PDFGenerator();
+      const pdfGenerator = new PDFGenerator(req.organization);
       pdfGenerator.generatePurchaseReport(res, report, {
         startDate,
         endDate,

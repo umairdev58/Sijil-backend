@@ -9,6 +9,7 @@ const createCustomer = async (req, res) => {
 
     // Check if customer with same English name already exists
     const existingCustomer = await Customer.findOne({ 
+      organizationId: req.organizationId,
       ename: { $regex: new RegExp(`^${ename}$`, 'i') }
     });
     
@@ -21,6 +22,7 @@ const createCustomer = async (req, res) => {
 
     // Create new customer
     const newCustomer = new Customer({
+      organizationId: req.organizationId,
       ename,
       uname,
       email,
@@ -64,7 +66,7 @@ const getCustomers = async (req, res) => {
     const fetchAll = all === 'true';
 
     // Build query
-    const query = {};
+    const query = { organizationId: req.organizationId };
 
     if (search) {
       query.$or = [
@@ -85,14 +87,14 @@ const getCustomers = async (req, res) => {
       customerQuery.limit(limitNumber).skip((pageNumber - 1) * limitNumber);
     }
     const customers = await customerQuery
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
 
     // Get total count
     const total = await Customer.countDocuments(query);
 
     // Get statistics
-    const stats = await Customer.getStatistics();
+    const stats = await Customer.getStatistics(req.organizationId);
 
     const currentPage = fetchAll ? 1 : pageNumber;
     const customersPerPage = fetchAll ? total : limitNumber;
@@ -134,9 +136,9 @@ const getCustomerById = async (req, res) => {
       });
     }
 
-    const customer = await Customer.findById(req.params.id)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+    const customer = await Customer.findOne({ _id: req.params.id, organizationId: req.organizationId })
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
 
     if (!customer) {
       return res.status(404).json({
@@ -174,7 +176,7 @@ const updateCustomer = async (req, res) => {
 
     const { ename, uname, email, number, trn, isActive } = req.body;
 
-    const customer = await Customer.findById(req.params.id);
+    const customer = await Customer.findOne({ _id: req.params.id, organizationId: req.organizationId });
 
     if (!customer) {
       return res.status(404).json({
@@ -187,7 +189,8 @@ const updateCustomer = async (req, res) => {
     if (ename !== customer.ename) {
       const existingCustomer = await Customer.findOne({ 
         ename: { $regex: new RegExp(`^${ename}$`, 'i') },
-        _id: { $ne: req.params.id }
+        _id: { $ne: req.params.id },
+        organizationId: req.organizationId
       });
       
       if (existingCustomer) {
@@ -239,7 +242,7 @@ const deactivateCustomer = async (req, res) => {
       });
     }
 
-    const customer = await Customer.findById(req.params.id);
+    const customer = await Customer.findOne({ _id: req.params.id, organizationId: req.organizationId });
 
     if (!customer) {
       return res.status(404).json({
@@ -280,7 +283,7 @@ const activateCustomer = async (req, res) => {
       });
     }
 
-    const customer = await Customer.findById(req.params.id);
+    const customer = await Customer.findOne({ _id: req.params.id, organizationId: req.organizationId });
 
     if (!customer) {
       return res.status(404).json({
@@ -315,10 +318,13 @@ const searchCustomersByName = async (req, res) => {
     const { name } = req.params;
     const { limit = 10 } = req.query;
 
-    const customers = await Customer.findByName(name)
+    const customers = await Customer.find({ organizationId: req.organizationId, $or: [
+      { ename: { $regex: name, $options: 'i' } },
+      { uname: { $regex: name, $options: 'i' } }
+    ] })
       .limit(parseInt(limit))
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
 
     res.json({
       success: true,
@@ -340,7 +346,7 @@ const searchCustomersByName = async (req, res) => {
 // @access  Private (Admin/Employee)
 const getCustomerStatistics = async (req, res) => {
   try {
-    const stats = await Customer.getStatistics();
+    const stats = await Customer.getStatistics(req.organizationId);
 
     res.json({
       success: true,

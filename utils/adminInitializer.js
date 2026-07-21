@@ -1,40 +1,101 @@
 const User = require('../models/User');
+const Organization = require('../models/Organization');
+
+const TENANT_MODELS = [
+  'Sales', 'Payment', 'Customer', 'Supplier', 'Purchase', 'Category', 'Product',
+  'DailyLedger', 'LedgerEntry', 'FreightInvoice', 'FreightPayment',
+  'TransportInvoice', 'TransportPayment', 'DubaiTransportInvoice',
+  'DubaiTransportPayment', 'DubaiClearanceInvoice', 'DubaiClearancePayment',
+  'ContainerStatement', 'Counter'
+];
 
 const initializeAdmin = async () => {
   try {
-    // Check if admin already exists
-    const existingAdmin = await User.findOne({ role: 'admin' });
-    
-    if (existingAdmin) {
-      console.log('Admin user already exists');
+    const organizationName = process.env.KOTIA_ORGANIZATION_NAME
+      || 'Kotia Fruits and Vegetables Trading LLC';
+    const defaultOrganization = await Organization.findOneAndUpdate(
+      { slug: process.env.KOTIA_ORGANIZATION_SLUG || 'kotia' },
+      {
+        $setOnInsert: {
+          name: organizationName,
+          legalName: organizationName,
+          trn: process.env.COMPANY_TRN || '',
+          status: 'active'
+        }
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    const migration = await User.updateMany(
+      {
+        role: { $ne: 'superadmin' },
+        $or: [
+          { organizationId: null },
+          { organizationId: { $exists: false } }
+        ]
+      },
+      { $set: { organizationId: defaultOrganization._id } }
+    );
+    if (migration.modifiedCount > 0) {
+      console.log(`Assigned ${migration.modifiedCount} legacy user(s) to the default organization`);
+    }
+
+    for (const modelName of TENANT_MODELS) {
+      const Model = require(`../models/${modelName}`);
+      const result = await Model.updateMany(
+        {
+          $or: [
+            { organizationId: null },
+            { organizationId: { $exists: false } }
+          ]
+        },
+        { $set: { organizationId: defaultOrganization._id } }
+      );
+      if (result.modifiedCount > 0) {
+        console.log(`Assigned ${result.modifiedCount} legacy ${modelName} record(s) to the default organization`);
+      }
+    }
+
+    const { SUPERADMIN_NAME, SUPERADMIN_EMAIL, SUPERADMIN_PASSWORD } = process.env;
+    if (!SUPERADMIN_NAME || !SUPERADMIN_EMAIL || !SUPERADMIN_PASSWORD) {
+      console.log('Superadmin initialization skipped: credentials are not fully configured');
       return;
     }
 
-    // Create admin user with environment variables
+    const existingAdmin = await User.findOne({
+      $or: [
+        { role: 'superadmin' },
+        { email: SUPERADMIN_EMAIL.toLowerCase() }
+      ]
+    });
+    
+    if (existingAdmin) {
+      console.log('Superadmin user already exists');
+      return;
+    }
+
     const adminData = {
-      name: process.env.ADMIN_NAME || 'System Administrator',
-      email: process.env.ADMIN_EMAIL || 'admin@company.com',
-      password: process.env.ADMIN_PASSWORD || 'admin123456',
-      role: 'admin',
-      department: 'Administration',
-      position: 'System Administrator',
+      name: SUPERADMIN_NAME,
+      email: SUPERADMIN_EMAIL,
+      password: SUPERADMIN_PASSWORD,
+      role: 'superadmin',
+      organizationId: null,
+      department: 'Platform',
+      position: 'Platform Administrator',
       isActive: true
     };
 
     const admin = new User(adminData);
     await admin.save();
 
-    console.log('✅ Admin user created successfully');
-    console.log(`📧 Email: ${adminData.email}`);
-    console.log(`🔑 Password: ${adminData.password}`);
-    console.log('⚠️  Please change the admin password after first login!');
+    console.log('✅ Superadmin user created successfully');
     
   } catch (error) {
     console.error('❌ Error creating admin user:', error.message);
     
     // If it's a duplicate key error, admin already exists
     if (error.code === 11000) {
-      console.log('Admin user already exists');
+      console.log('Superadmin user already exists');
     }
   }
 };

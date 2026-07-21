@@ -54,6 +54,7 @@ const createFreightInvoice = async (req, res) => {
     const data = req.body;
 
     const freightInvoice = new FreightInvoice({
+      organizationId: req.organizationId,
       invoice_number: data.invoice_number,
       description: data.description,
       container_number: data.container_number,
@@ -80,14 +81,14 @@ const createFreightInvoice = async (req, res) => {
 const getFreightInvoices = async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;
-    const query = buildInvoiceQuery(req.query);
+    const query = { ...buildInvoiceQuery(req.query), organizationId: req.organizationId };
 
     const freightInvoices = await FreightInvoice.find(query)
       .sort({ createdAt: -1 })
       .limit(Number(limit) * 1)
       .skip((Number(page) - 1) * Number(limit))
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
 
     const total = await FreightInvoice.countDocuments(query);
 
@@ -114,9 +115,9 @@ const getFreightInvoiceById = async (req, res) => {
       return res.status(400).json({ error: 'Invalid freight invoice ID' });
     }
 
-    const freightInvoice = await FreightInvoice.findById(id)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+    const freightInvoice = await FreightInvoice.findOne({ _id: id, organizationId: req.organizationId })
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
 
     if (!freightInvoice) {
       return res.status(404).json({ error: 'Freight invoice not found' });
@@ -137,13 +138,14 @@ const updateFreightInvoice = async (req, res) => {
     }
 
     const data = req.body;
-    const freightInvoice = await FreightInvoice.findById(id);
+    const freightInvoice = await FreightInvoice.findOne({ _id: id, organizationId: req.organizationId });
 
     if (!freightInvoice) {
       return res.status(404).json({ error: 'Freight invoice not found' });
     }
 
-    Object.assign(freightInvoice, data);
+    const { organizationId: ignoredOrganizationId, ...safeData } = data;
+    Object.assign(freightInvoice, safeData);
     freightInvoice.updatedBy = req.user.id;
 
     await freightInvoice.save();
@@ -176,7 +178,7 @@ const addFreightPayment = async (req, res) => {
       paymentDate
     } = req.body;
 
-    const freightInvoice = await FreightInvoice.findById(id);
+    const freightInvoice = await FreightInvoice.findOne({ _id: id, organizationId: req.organizationId });
 
     if (!freightInvoice) {
       return res.status(404).json({ error: 'Freight invoice not found' });
@@ -206,14 +208,16 @@ const addFreightPayment = async (req, res) => {
       paymentDate: paymentDate ? new Date(paymentDate) : new Date()
     });
 
-    const updatedFreightInvoice = await FreightInvoice.findById(id)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email')
+    const updatedFreightInvoice = await FreightInvoice.findOne({ _id: id, organizationId: req.organizationId })
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } })
       .populate({
         path: 'payments',
+        match: { organizationId: req.organizationId },
         populate: {
           path: 'receivedBy',
-          select: 'name email'
+          select: 'name email',
+          match: { organizationId: req.organizationId }
         }
       });
 
@@ -235,13 +239,15 @@ const getFreightPaymentHistory = async (req, res) => {
       return res.status(400).json({ error: 'Invalid freight invoice ID' });
     }
 
-    const freightInvoice = await FreightInvoice.findById(id);
+    const freightInvoice = await FreightInvoice.findOne({ _id: id, organizationId: req.organizationId });
 
     if (!freightInvoice) {
       return res.status(404).json({ error: 'Freight invoice not found' });
     }
 
-    const paymentHistory = await freightInvoice.getPaymentHistory();
+    const paymentHistory = await FreightPayment.find({ freightInvoiceId: id, organizationId: req.organizationId })
+      .populate({ path: 'receivedBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .sort({ paymentDate: -1 });
 
     res.json({
       success: true,
@@ -260,13 +266,13 @@ const deleteFreightInvoice = async (req, res) => {
       return res.status(400).json({ error: 'Invalid freight invoice ID' });
     }
 
-    const freightInvoice = await FreightInvoice.findById(id);
+    const freightInvoice = await FreightInvoice.findOne({ _id: id, organizationId: req.organizationId });
 
     if (!freightInvoice) {
       return res.status(404).json({ error: 'Freight invoice not found' });
     }
 
-    await FreightInvoice.findByIdAndDelete(id);
+    await FreightInvoice.findOneAndDelete({ _id: id, organizationId: req.organizationId });
 
     res.json({ success: true, message: 'Freight invoice deleted successfully' });
   } catch (error) {
@@ -277,21 +283,24 @@ const deleteFreightInvoice = async (req, res) => {
 
 const getFreightInvoiceStats = async (req, res) => {
   try {
-    const totalInvoices = await FreightInvoice.countDocuments();
-    const paidInvoices = await FreightInvoice.countDocuments({ status: 'paid' });
-    const unpaidInvoices = await FreightInvoice.countDocuments({ status: 'unpaid' });
-    const partiallyPaidInvoices = await FreightInvoice.countDocuments({ status: 'partially_paid' });
-    const overdueInvoices = await FreightInvoice.countDocuments({ status: 'overdue' });
+    const totalInvoices = await FreightInvoice.countDocuments({ organizationId: req.organizationId });
+    const paidInvoices = await FreightInvoice.countDocuments({ organizationId: req.organizationId, status: 'paid' });
+    const unpaidInvoices = await FreightInvoice.countDocuments({ organizationId: req.organizationId, status: 'unpaid' });
+    const partiallyPaidInvoices = await FreightInvoice.countDocuments({ organizationId: req.organizationId, status: 'partially_paid' });
+    const overdueInvoices = await FreightInvoice.countDocuments({ organizationId: req.organizationId, status: 'overdue' });
 
     const totalAmountAED = await FreightInvoice.aggregate([
+      { $match: { organizationId: req.organizationId } },
       { $group: { _id: null, total: { $sum: '$amount_aed' } } }
     ]);
 
     const receivedAmountAED = await FreightInvoice.aggregate([
+      { $match: { organizationId: req.organizationId } },
       { $group: { _id: null, total: { $sum: '$paid_amount_aed' } } }
     ]);
 
     const outstandingAmountAED = await FreightInvoice.aggregate([
+      { $match: { organizationId: req.organizationId } },
       { $group: { _id: null, total: { $sum: '$outstanding_amount_aed' } } }
     ]);
 
@@ -320,15 +329,15 @@ const printFreightInvoice = async (req, res) => {
       return res.status(400).json({ error: 'Invalid freight invoice ID' });
     }
 
-    const freightInvoice = await FreightInvoice.findById(req.params.id)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+    const freightInvoice = await FreightInvoice.findOne({ _id: req.params.id, organizationId: req.organizationId })
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
 
     if (!freightInvoice) {
       return res.status(404).json({ error: 'Freight invoice not found' });
     }
 
-    const pdf = new PDFGenerator();
+    const pdf = new PDFGenerator(req.organization);
     pdf.generateFreightInvoice(res, freightInvoice);
   } catch (error) {
     console.error('Print freight invoice error:', error);
@@ -339,22 +348,22 @@ const printFreightInvoice = async (req, res) => {
 const generateFreightReportPDF = async (req, res) => {
   try {
     const { groupBy = 'none', includePayments = 'true' } = req.query;
-    const query = buildInvoiceQuery(req.query);
+    const query = { ...buildInvoiceQuery(req.query), organizationId: req.organizationId };
 
     const freightInvoices = await FreightInvoice.find(query)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email')
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } })
       .sort({ createdAt: -1 });
 
     let paymentHistory = [];
     if (includePayments === 'true') {
       const invoiceIds = freightInvoices.map(invoice => invoice._id);
-      paymentHistory = await FreightPayment.find({ freightInvoiceId: { $in: invoiceIds } })
-        .populate('receivedBy', 'name email')
+      paymentHistory = await FreightPayment.find({ freightInvoiceId: { $in: invoiceIds }, organizationId: req.organizationId })
+        .populate({ path: 'receivedBy', select: 'name email', match: { organizationId: req.organizationId } })
         .sort({ paymentDate: -1 });
     }
 
-    const pdf = new PDFGenerator();
+    const pdf = new PDFGenerator(req.organization);
     pdf.generateFreightReport(res, {
       invoices: freightInvoices,
       payments: paymentHistory,
@@ -371,22 +380,22 @@ const generateFreightReportPDF = async (req, res) => {
 const generateFreightReportCSV = async (req, res) => {
   try {
     const { groupBy = 'none', includePayments = 'true' } = req.query;
-    const query = buildInvoiceQuery(req.query);
+    const query = { ...buildInvoiceQuery(req.query), organizationId: req.organizationId };
 
     const freightInvoices = await FreightInvoice.find(query)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email')
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } })
       .sort({ createdAt: -1 });
 
     let paymentHistory = [];
     if (includePayments === 'true') {
       const invoiceIds = freightInvoices.map(invoice => invoice._id);
-      paymentHistory = await FreightPayment.find({ freightInvoiceId: { $in: invoiceIds } })
-        .populate('receivedBy', 'name email')
+      paymentHistory = await FreightPayment.find({ freightInvoiceId: { $in: invoiceIds }, organizationId: req.organizationId })
+        .populate({ path: 'receivedBy', select: 'name email', match: { organizationId: req.organizationId } })
         .sort({ paymentDate: -1 });
     }
 
-    const csv = new PDFGenerator();
+    const csv = new PDFGenerator(req.organization);
     csv.generateFreightReportCSV(res, {
       invoices: freightInvoices,
       payments: paymentHistory,

@@ -1,11 +1,14 @@
 const mongoose = require('mongoose');
 
 const dailyLedgerSchema = new mongoose.Schema({
+  organizationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
+    required: [true, 'Organization ID is required']
+  },
   date: {
     type: Date,
-    required: true,
-    unique: true,
-    index: true
+    required: true
   },
   opening_cash: {
     type: Number,
@@ -73,7 +76,7 @@ const dailyLedgerSchema = new mongoose.Schema({
 });
 
 // Index for efficient date-based queries
-dailyLedgerSchema.index({ date: 1 });
+dailyLedgerSchema.index({ organizationId: 1, date: 1 }, { unique: true });
 
 // Pre-save middleware to calculate closing balances
 dailyLedgerSchema.pre('save', function(next) {

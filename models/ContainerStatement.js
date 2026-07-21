@@ -1,12 +1,16 @@
 const mongoose = require('mongoose');
 
 const containerStatementSchema = new mongoose.Schema({
+  organizationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
+    required: [true, 'Organization ID is required']
+  },
   containerNo: {
     type: String,
     required: [true, 'Container number is required'],
     trim: true,
-    maxlength: [50, 'Container number cannot be more than 50 characters'],
-    unique: true
+    maxlength: [50, 'Container number cannot be more than 50 characters']
   },
   products: [{
     srNo: {
@@ -94,8 +98,8 @@ const containerStatementSchema = new mongoose.Schema({
 });
 
 // Index for better query performance
-containerStatementSchema.index({ containerNo: 1 });
-containerStatementSchema.index({ createdAt: -1 });
+containerStatementSchema.index({ organizationId: 1, containerNo: 1 }, { unique: true });
+containerStatementSchema.index({ organizationId: 1, createdAt: -1 });
 
 // Pre-save middleware to calculate totals
 containerStatementSchema.pre('save', function(next) {

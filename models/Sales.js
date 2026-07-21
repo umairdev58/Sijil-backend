@@ -1,6 +1,11 @@
 const mongoose = require('mongoose');
 
 const salesSchema = new mongoose.Schema({
+  organizationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
+    required: [true, 'Organization ID is required']
+  },
   customer: {
     type: String,
     required: [true, 'Customer is required'],
@@ -28,7 +33,6 @@ const salesSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Invoice number is required'],
     trim: true,
-    unique: true,
     maxlength: [50, 'Invoice number cannot be more than 50 characters']
   },
   product: {
@@ -128,17 +132,18 @@ const salesSchema = new mongoose.Schema({
 salesSchema.virtual('payments', {
   ref: 'Payment',
   localField: '_id',
-  foreignField: 'saleId'
+  foreignField: 'saleId',
+  match: sale => ({ organizationId: sale.organizationId })
 });
 
 // Indexes for better query performance
-salesSchema.index({ customer: 1 });
-salesSchema.index({ supplier: 1 });
-salesSchema.index({ invoiceNumber: 1 });
-salesSchema.index({ status: 1 });
-salesSchema.index({ invoiceDate: 1 });
-salesSchema.index({ dueDate: 1 });
-salesSchema.index({ lastPaymentDate: 1 });
+salesSchema.index({ organizationId: 1, invoiceNumber: 1 }, { unique: true });
+salesSchema.index({ organizationId: 1, customer: 1 });
+salesSchema.index({ organizationId: 1, supplier: 1 });
+salesSchema.index({ organizationId: 1, status: 1 });
+salesSchema.index({ organizationId: 1, invoiceDate: 1 });
+salesSchema.index({ organizationId: 1, dueDate: 1 });
+salesSchema.index({ organizationId: 1, lastPaymentDate: 1 });
 
 // Pre-save middleware to calculate amounts and outstanding amount
 salesSchema.pre('save', function(next) {
@@ -178,6 +183,7 @@ salesSchema.methods.addPayment = async function(paymentData) {
   
   // Create new payment record
   const payment = new Payment({
+    organizationId: this.organizationId,
     saleId: this._id,
     amount: paymentData.amount,
     receivedBy: paymentData.receivedBy,
@@ -225,7 +231,7 @@ salesSchema.methods.addPayment = async function(paymentData) {
 // Instance method to get payment history
 salesSchema.methods.getPaymentHistory = async function() {
   const Payment = require('./Payment');
-  return await Payment.find({ saleId: this._id })
+  return await Payment.find({ saleId: this._id, organizationId: this.organizationId })
     .populate('receivedBy', 'name email')
     .sort({ paymentDate: -1 });
 };
@@ -234,7 +240,10 @@ salesSchema.methods.getPaymentHistory = async function() {
 salesSchema.methods.getPaymentSummary = async function() {
   const Payment = require('./Payment');
   
-  const payments = await Payment.find({ saleId: this._id });
+  const payments = await Payment.find({
+    saleId: this._id,
+    organizationId: this.organizationId
+  });
   
   const summary = {
     totalPayments: payments.length,
@@ -255,8 +264,13 @@ salesSchema.methods.getPaymentSummary = async function() {
 };
 
 // Static method to get sales statistics
-salesSchema.statics.getStatistics = async function() {
+salesSchema.statics.getStatistics = async function(organizationId) {
+  if (!organizationId) {
+    throw new Error('organizationId is required for sales statistics');
+  }
+
   const stats = await this.aggregate([
+    { $match: { organizationId: new mongoose.Types.ObjectId(organizationId) } },
     {
       $group: {
         _id: null,

@@ -9,6 +9,7 @@ const createSupplier = async (req, res) => {
 
     // Check if supplier with same English name already exists
     const existing = await Supplier.findOne({
+      organizationId: req.organizationId,
       ename: { $regex: new RegExp(`^${ename}$`, 'i') }
     });
     if (existing) {
@@ -19,6 +20,7 @@ const createSupplier = async (req, res) => {
     }
 
     const supplier = new Supplier({
+      organizationId: req.organizationId,
       ename, uname, email, number, marka,
       createdBy: req.user.id
     });
@@ -36,7 +38,7 @@ const createSupplier = async (req, res) => {
 const getSuppliers = async (req, res) => {
   try {
     const { page = 1, limit = 10, search = '', isActive = '' } = req.query;
-    const query = {};
+    const query = { organizationId: req.organizationId };
     if (search) {
       query.$or = [
         { ename: { $regex: search, $options: 'i' } },
@@ -52,11 +54,11 @@ const getSuppliers = async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(Number(limit))
       .skip((Number(page) - 1) * Number(limit))
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
 
     const total = await Supplier.countDocuments(query);
-    const stats = await Supplier.getStatistics();
+    const stats = await Supplier.getStatistics(req.organizationId);
     res.json({
       success: true,
       data: suppliers,
@@ -80,9 +82,9 @@ const getSupplierById = async (req, res) => {
     if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({ error: 'Invalid supplier ID', message: 'Invalid id' });
     }
-    const supplier = await Supplier.findById(req.params.id)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+    const supplier = await Supplier.findOne({ _id: req.params.id, organizationId: req.organizationId })
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
     if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
     res.json({ success: true, supplier });
   } catch (error) {
@@ -98,11 +100,12 @@ const updateSupplier = async (req, res) => {
       return res.status(400).json({ error: 'Invalid supplier ID', message: 'Invalid id' });
     }
     const { ename, uname, email, number, isActive, marka } = req.body;
-    const supplier = await Supplier.findById(req.params.id);
+    const supplier = await Supplier.findOne({ _id: req.params.id, organizationId: req.organizationId });
     if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
 
     if (ename !== supplier.ename) {
-      const existing = await Supplier.findOne({ ename: { $regex: new RegExp(`^${ename}$`, 'i') }, _id: { $ne: req.params.id } });
+      const existing = await Supplier.findOne({ ename: { $regex: new RegExp(`^${ename}$`, 'i') }, _id: { $ne: req.params.id },
+        organizationId: req.organizationId });
       if (existing) return res.status(400).json({ error: 'Supplier already exists' });
     }
 
@@ -127,7 +130,7 @@ const deactivateSupplier = async (req, res) => {
     if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({ error: 'Invalid supplier ID' });
     }
-    const supplier = await Supplier.findById(req.params.id);
+    const supplier = await Supplier.findOne({ _id: req.params.id, organizationId: req.organizationId });
     if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
     supplier.isActive = false;
     supplier.updatedBy = req.user.id;
@@ -145,7 +148,7 @@ const activateSupplier = async (req, res) => {
     if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({ error: 'Invalid supplier ID' });
     }
-    const supplier = await Supplier.findById(req.params.id);
+    const supplier = await Supplier.findOne({ _id: req.params.id, organizationId: req.organizationId });
     if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
     supplier.isActive = true;
     supplier.updatedBy = req.user.id;
@@ -162,10 +165,13 @@ const searchSuppliersByName = async (req, res) => {
   try {
     const { name } = req.params;
     const { limit = 10 } = req.query;
-    const suppliers = await Supplier.findByName(name)
+    const suppliers = await Supplier.find({ organizationId: req.organizationId, $or: [
+      { ename: { $regex: name, $options: 'i' } },
+      { uname: { $regex: name, $options: 'i' } }
+    ] })
       .limit(parseInt(limit))
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+      .populate({ path: 'createdBy', select: 'name email', match: { organizationId: req.organizationId } })
+      .populate({ path: 'updatedBy', select: 'name email', match: { organizationId: req.organizationId } });
     res.json({ success: true, suppliers, searchTerm: name });
   } catch (error) {
     console.error('Search suppliers error:', error);
@@ -176,7 +182,7 @@ const searchSuppliersByName = async (req, res) => {
 // @desc    Get supplier statistics
 const getSupplierStatistics = async (req, res) => {
   try {
-    const stats = await Supplier.getStatistics();
+    const stats = await Supplier.getStatistics(req.organizationId);
     res.json({ success: true, statistics: stats });
   } catch (error) {
     console.error('Get supplier statistics error:', error);

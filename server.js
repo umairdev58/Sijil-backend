@@ -19,6 +19,9 @@ const dubaiClearanceRoutes = require('./routes/dubaiClearance');
 const containerStatementRoutes = require('./routes/containerStatements');
 const categoryRoutes = require('./routes/categories');
 const productRoutes = require('./routes/products');
+const platformRoutes = require('./routes/platform');
+const organizationRoutes = require('./routes/organization');
+const { protect, requireOrganization } = require('./middleware/auth');
 const { initializeAdmin } = require('./utils/adminInitializer');
 const { formatNumbersDeep } = require('./utils/numberFormatter');
 
@@ -155,19 +158,22 @@ connectDB();
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/sales', salesRoutes);
-app.use('/api/customers', customerRoutes);
-app.use('/api/purchases', purchaseRoutes);
-app.use('/api/suppliers', supplierRoutes);
-app.use('/api/daily-ledger', dailyLedgerRoutes);
-app.use('/api/freight-invoices', freightRoutes);
-app.use('/api/transport-invoices', transportRoutes);
-app.use('/api/dubai-transport-invoices', dubaiTransportRoutes);
-app.use('/api/dubai-clearance-invoices', dubaiClearanceRoutes);
-app.use('/api/container-statements', containerStatementRoutes);
-app.use('/api/categories', categoryRoutes);
-app.use('/api/products', productRoutes);
+app.use('/api/platform', platformRoutes);
+app.use('/api/organization', organizationRoutes);
+const tenantMiddleware = [protect, requireOrganization];
+app.use('/api/users', tenantMiddleware, userRoutes);
+app.use('/api/sales', tenantMiddleware, salesRoutes);
+app.use('/api/customers', tenantMiddleware, customerRoutes);
+app.use('/api/purchases', tenantMiddleware, purchaseRoutes);
+app.use('/api/suppliers', tenantMiddleware, supplierRoutes);
+app.use('/api/daily-ledger', tenantMiddleware, dailyLedgerRoutes);
+app.use('/api/freight-invoices', tenantMiddleware, freightRoutes);
+app.use('/api/transport-invoices', tenantMiddleware, transportRoutes);
+app.use('/api/dubai-transport-invoices', tenantMiddleware, dubaiTransportRoutes);
+app.use('/api/dubai-clearance-invoices', tenantMiddleware, dubaiClearanceRoutes);
+app.use('/api/container-statements', tenantMiddleware, containerStatementRoutes);
+app.use('/api/categories', tenantMiddleware, categoryRoutes);
+app.use('/api/products', tenantMiddleware, productRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
