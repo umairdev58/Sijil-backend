@@ -17,7 +17,8 @@ const updateOwnOrganization = async (req, res) => {
     const updates = pickOrganizationFields(req.body);
     delete updates.slug;
     delete updates.status;
-    delete updates.status;
+    delete updates.plan;
+    delete updates.seatLimit;
     const organization = await Organization.findOneAndUpdate(
       { _id: req.organizationId, status: 'active' },
       updates,

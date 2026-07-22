@@ -1,13 +1,6 @@
-const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Organization = require('../models/Organization');
-
-// Generate JWT Token
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRE || '24h'
-  });
-};
+const { generateToken } = require('../utils/token');
 
 // @desc    Login user
 // @route   POST /api/auth/login
@@ -120,7 +113,8 @@ const getCurrentUser = async (req, res) => {
       trn: user.trn,
       lastLogin: user.lastLogin,
       createdAt: user.createdAt,
-      updatedAt: user.updatedAt
+      updatedAt: user.updatedAt,
+      impersonatedBy: req.impersonatedBy || null
     };
     res.json({
       success: true,

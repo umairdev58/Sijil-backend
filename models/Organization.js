@@ -68,6 +68,17 @@ const organizationSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.Mixed,
     default: () => ({})
   },
+  plan: {
+    type: String,
+    enum: ['free', 'standard', 'enterprise'],
+    default: 'standard'
+  },
+  seatLimit: {
+    type: Number,
+    min: 1,
+    max: 10000,
+    default: 25
+  },
   status: {
     type: String,
     enum: ['active', 'suspended'],

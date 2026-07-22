@@ -42,6 +42,18 @@ const protect = async (req, res, next) => {
 
       req.user = user;
 
+      if (decoded.impersonatedBy) {
+        const actor = await User.findById(decoded.impersonatedBy).select('name email role');
+        if (actor && actor.role === 'superadmin') {
+          req.impersonatedBy = {
+            id: actor._id,
+            name: actor.name,
+            email: actor.email,
+            role: actor.role
+          };
+        }
+      }
+
       if (user.role !== 'superadmin') {
         if (!user.organizationId) {
           return res.status(403).json({
