@@ -1,4 +1,8 @@
 const PDFDocument = require('pdfkit');
+const fs = require('fs');
+const path = require('path');
+const http = require('http');
+const https = require('https');
 
 class PDFGenerator {
   constructor(organization = {}) {
@@ -19,6 +23,70 @@ class PDFGenerator {
     this.pageHeight = 842;
     this.margin = 40;
     this.contentWidth = this.pageWidth - (this.margin * 2);
+  }
+
+  fetchRemoteImage(url, redirectsLeft = 3) {
+    return new Promise((resolve, reject) => {
+      const client = url.startsWith('https:') ? https : http;
+      const request = client.get(url, { timeout: 10000 }, (response) => {
+        const { statusCode, headers } = response;
+
+        if (
+          statusCode >= 300 &&
+          statusCode < 400 &&
+          headers.location &&
+          redirectsLeft > 0
+        ) {
+          response.resume();
+          const nextUrl = new URL(headers.location, url).toString();
+          this.fetchRemoteImage(nextUrl, redirectsLeft - 1).then(resolve, reject);
+          return;
+        }
+
+        if (statusCode !== 200) {
+          response.resume();
+          reject(new Error(`Failed to fetch logo (${statusCode})`));
+          return;
+        }
+
+        const chunks = [];
+        response.on('data', (chunk) => chunks.push(chunk));
+        response.on('end', () => resolve(Buffer.concat(chunks)));
+        response.on('error', reject);
+      });
+
+      request.on('timeout', () => {
+        request.destroy();
+        reject(new Error('Logo fetch timed out'));
+      });
+      request.on('error', reject);
+    });
+  }
+
+  async resolveLogoImage() {
+    const logoUrl = String(this.logoUrl || '').trim();
+
+    if (logoUrl) {
+      if (/^https?:\/\//i.test(logoUrl)) {
+        try {
+          return await this.fetchRemoteImage(logoUrl);
+        } catch (error) {
+          console.warn('Failed to fetch company logo from URL:', error.message);
+          return null;
+        }
+      }
+
+      if (fs.existsSync(logoUrl)) {
+        return logoUrl;
+      }
+    }
+
+    const localFallback = path.join(__dirname, '..', 'company-logo.png');
+    if (fs.existsSync(localFallback)) {
+      return localFallback;
+    }
+
+    return null;
   }
 
   // Initialize PDF document
@@ -1134,10 +1202,13 @@ class PDFGenerator {
   }
 
   // Generate Container Statement PDF
-  generateContainerStatement(res, statement, extras = {}) {
+  async generateContainerStatement(res, statement, extras = {}) {
     const filename = `container-statement-${statement.containerNo}-${new Date()
       .toISOString()
       .split('T')[0]}.pdf`;
+
+    // Resolve logo before streaming the PDF (supports S3 / remote URLs)
+    const logo = await this.resolveLogoImage();
   
     const doc = this.initDocument(res, filename);
   
@@ -1154,9 +1225,6 @@ class PDFGenerator {
     // LOGO
     // =================================================
     try {
-      const fs = require('fs');
-      const logo = this.logoUrl && fs.existsSync(this.logoUrl) ? this.logoUrl : null;
-  
       if (logo) {
         const logoWidth = this.contentWidth * 0.8;
         const logoX = this.margin + (this.contentWidth - logoWidth) / 2;

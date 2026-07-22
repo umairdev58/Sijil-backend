@@ -512,7 +512,7 @@ const generatePDFFromPayload = async (req, res) => {
     };
 
     const pdf = new PDFGenerator(req.organization);
-    pdf.generateContainerStatement(res, statement, { 
+    await pdf.generateContainerStatement(res, statement, { 
       companyName: companyName || '', 
       srNo: srNo || '' 
     });
@@ -550,7 +550,7 @@ module.exports = {
         : '';
       const uniqueMarkas = Array.from(new Set(salesData.map((s) => s.marka).filter(Boolean)));
       const srNo = uniqueMarkas.length > 0 ? uniqueMarkas[0] : '';
-      pdf.generateContainerStatement(res, statement, { companyName, srNo });
+      await pdf.generateContainerStatement(res, statement, { companyName, srNo });
     } catch (error) {
       console.error('Download statement PDF error:', error);
       res.status(500).json({ success: false, message: 'Failed to generate PDF' });
