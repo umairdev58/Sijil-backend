@@ -145,29 +145,28 @@ salesSchema.index({ organizationId: 1, invoiceDate: 1 });
 salesSchema.index({ organizationId: 1, dueDate: 1 });
 salesSchema.index({ organizationId: 1, lastPaymentDate: 1 });
 
-// Pre-save middleware to calculate amounts and outstanding amount
-salesSchema.pre('save', function(next) {
+// Recalculate derived amounts before validation so min/max checks see fresh values
+salesSchema.pre('validate', function(next) {
   const { ceilToTwoDecimals } = require('../utils/numberFormatter');
   // Calculate subtotal
   const subtotal = ceilToTwoDecimals(this.quantity * this.rate);
   
   // Calculate VAT amount based on percentage
-  this.vatAmount = ceilToTwoDecimals((subtotal * this.vatPercentage) / 100);
-  
+  this.vatAmount = ceilToTwoDecimals((subtotal * (this.vatPercentage || 0)) / 100);
   
   // Calculate final amount
   const discountTotal = Number(this.discountTotal || 0);
   this.amount = ceilToTwoDecimals(Math.max(0, subtotal + this.vatAmount - discountTotal));
   
   // Calculate outstanding amount
-  this.outstandingAmount = ceilToTwoDecimals(this.amount - this.receivedAmount);
+  this.outstandingAmount = ceilToTwoDecimals(this.amount - (this.receivedAmount || 0));
   
   // Update status based on outstanding amount and due date
   if (this.outstandingAmount <= 0) {
     this.status = 'paid';
   } else if (this.receivedAmount > 0) {
     this.status = 'partially_paid';
-  } else if (new Date() > this.dueDate) {
+  } else if (this.dueDate && new Date() > this.dueDate) {
     this.status = 'overdue';
   } else {
     this.status = 'unpaid';

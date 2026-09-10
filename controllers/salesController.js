@@ -995,6 +995,23 @@ const updateSale = async (req, res) => {
       }
     }
 
+    // Prevent edits that would make invoice total lower than amount already received
+    const { ceilToTwoDecimals } = require('../utils/numberFormatter');
+    const nextQuantity = Number(quantity);
+    const nextRate = Number(rate);
+    const nextVatPercentage = Number(vatPercentage) || 0;
+    const nextSubtotal = ceilToTwoDecimals(nextQuantity * nextRate);
+    const nextVatAmount = ceilToTwoDecimals((nextSubtotal * nextVatPercentage) / 100);
+    const nextAmount = ceilToTwoDecimals(Math.max(0, nextSubtotal + nextVatAmount - (sale.discountTotal || 0)));
+    const receivedAmount = Number(sale.receivedAmount || 0);
+
+    if (nextAmount < receivedAmount) {
+      return res.status(400).json({
+        error: 'Amount below received payments',
+        message: `Cannot update this sale to AED ${nextAmount.toLocaleString('en-AE', { minimumFractionDigits: 2 })} because AED ${receivedAmount.toLocaleString('en-AE', { minimumFractionDigits: 2 })} has already been received. Raise the amount or adjust payments first.`
+      });
+    }
+
     // Update sale
     sale.customer = customer;
     sale.containerNo = containerNo;
@@ -1004,9 +1021,9 @@ const updateSale = async (req, res) => {
     sale.product = product;
     sale.marka = marka;
     sale.description = description;
-    sale.quantity = quantity;
-    sale.rate = rate;
-    sale.vatPercentage = vatPercentage;
+    sale.quantity = nextQuantity;
+    sale.rate = nextRate;
+    sale.vatPercentage = nextVatPercentage;
     // Discount is managed via payments now; do not set on sale during updates
     sale.dueDate = new Date(dueDate);
     sale.updatedBy = req.user.id;
@@ -1025,6 +1042,12 @@ const updateSale = async (req, res) => {
 
   } catch (error) {
     console.error('Update sale error:', error);
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        error: 'Validation failed',
+        message: error.message
+      });
+    }
     res.status(500).json({
       error: 'Server error',
       message: 'Internal server error'
