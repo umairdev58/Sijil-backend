@@ -26,6 +26,11 @@ const freightInvoiceSchema = new mongoose.Schema({
     required: [true, 'Amount in AED is required'],
     min: [0.01, 'Amount must be greater than 0']
   },
+  conversion_rate: {
+    type: Number,
+    required: [true, 'Conversion rate is required'],
+    min: [0.01, 'Conversion rate must be greater than 0']
+  },
   invoice_date: {
     type: Date,
     required: [true, 'Invoice date is required']
@@ -74,6 +79,22 @@ freightInvoiceSchema.virtual('payments', {
   localField: '_id',
   foreignField: 'freightInvoiceId',
   match: invoice => ({ organizationId: invoice.organizationId })
+});
+
+// Virtual PKR amounts (calculated at runtime, not stored)
+freightInvoiceSchema.virtual('amount_pkr').get(function() {
+  if (!this.amount_aed || !this.conversion_rate) return 0;
+  return Math.round(this.amount_aed * this.conversion_rate);
+});
+
+freightInvoiceSchema.virtual('paid_amount_pkr').get(function() {
+  if (!this.paid_amount_aed || !this.conversion_rate) return 0;
+  return Math.round(this.paid_amount_aed * this.conversion_rate);
+});
+
+freightInvoiceSchema.virtual('outstanding_amount_pkr').get(function() {
+  if (!this.outstanding_amount_aed || !this.conversion_rate) return 0;
+  return Math.round(this.outstanding_amount_aed * this.conversion_rate);
 });
 
 freightInvoiceSchema.index({ organizationId: 1, invoice_number: 1 }, { unique: true });

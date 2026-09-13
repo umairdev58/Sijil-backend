@@ -59,6 +59,7 @@ const createFreightInvoice = async (req, res) => {
       description: data.description,
       container_number: data.container_number,
       amount_aed: data.amount_aed,
+      conversion_rate: data.conversion_rate,
       invoice_date: data.invoice_date,
       due_date: data.due_date,
       createdBy: req.user.id

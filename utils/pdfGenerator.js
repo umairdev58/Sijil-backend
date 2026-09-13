@@ -1858,7 +1858,7 @@ class PDFGenerator {
   generateFreightCSV(data) {
     const { invoices, payments, includePayments } = data;
     
-    let csv = 'Invoice Number,Container Number,Description,Amount AED,Paid AED,Outstanding AED,Status,Due Date,Invoice Date\n';
+    let csv = 'Invoice Number,Container Number,Description,Amount AED,Conversion Rate,Amount PKR,Paid AED,Outstanding AED,Status,Due Date,Invoice Date\n';
     
     invoices.forEach(invoice => {
       const row = [
@@ -1866,6 +1866,8 @@ class PDFGenerator {
         invoice.container_number || '',
         invoice.description || '',
         invoice.amount_aed || 0,
+        invoice.conversion_rate || 0,
+        invoice.amount_pkr || 0,
         invoice.paid_amount_aed || 0,
         invoice.outstanding_amount_aed || 0,
         invoice.status || '',
@@ -1916,9 +1918,11 @@ class PDFGenerator {
 
     this.doc.fontSize(14).font('Helvetica-Bold');
     this.doc.text(`Amount (AED): ${invoice.amount_aed.toFixed(2)}`, this.margin, 220);
-    this.doc.text(`Paid Amount (AED): ${invoice.paid_amount_aed.toFixed(2)}`, this.margin, 240);
-    this.doc.text(`Outstanding Amount (AED): ${invoice.outstanding_amount_aed.toFixed(2)}`, this.margin, 260);
-    this.doc.text(`Status: ${invoice.status.toUpperCase()}`, this.margin, 280);
+    this.doc.text(`Conversion Rate: ${invoice.conversion_rate || 0} PKR / AED`, this.margin, 240);
+    this.doc.text(`Amount (PKR): ${(invoice.amount_pkr || 0).toFixed(2)}`, this.margin, 260);
+    this.doc.text(`Paid Amount (AED): ${invoice.paid_amount_aed.toFixed(2)}`, this.margin, 280);
+    this.doc.text(`Outstanding Amount (AED): ${invoice.outstanding_amount_aed.toFixed(2)}`, this.margin, 300);
+    this.doc.text(`Status: ${invoice.status.toUpperCase()}`, this.margin, 320);
 
     this.doc.end();
   }
